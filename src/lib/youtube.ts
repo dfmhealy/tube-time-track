@@ -105,6 +105,11 @@ export interface YouTubePlayer {
   getPlayerState(): PlayerState;
   getPlaybackRate(): number;
   setPlaybackRate(rate: number): void;
+  mute(): void;
+  unMute(): void;
+  isMuted(): boolean;
+  setVolume(volume: number): void;
+  getVolume(): number;
   getVideoData(): {
     video_id: string;
     title: string;
