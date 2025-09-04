@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export function PlayerView() {
+  const navigate = useNavigate();
   const { currentVideo, setCurrentView, activeWatchSession, setActiveWatchSession } = useAppStore();
   const { updateTotalSeconds } = useStatsStore();
   const { updateVideo } = useLibraryStore();
@@ -39,13 +41,40 @@ export function PlayerView() {
   const visibilityRef = useRef(true);
   const focusRef = useRef(true);
   
+  // Forward declare endWatchSession
+  const endWatchSession = useCallback(async () => {
+    if (!activeWatchSession) return;
+
+    try {
+      const finalSeconds = totalWatchedSeconds;
+      await DatabaseService.endWatchSession(activeWatchSession.id, finalSeconds);
+      
+      // Update video's last watched
+      if (currentVideo) {
+        await updateVideo(currentVideo.id, {
+          ...currentVideo,
+          addedAt: currentVideo.addedAt // Keep original addedAt
+        });
+      }
+
+      // Update global stats
+      updateTotalSeconds(finalSeconds);
+      
+      setActiveWatchSession(null);
+      setTotalWatchedSeconds(0);
+      setWatchStartTime(null);
+    } catch (error) {
+      console.error('Failed to end watch session:', error);
+    }
+  }, [activeWatchSession, totalWatchedSeconds, currentVideo, updateVideo, updateTotalSeconds, setActiveWatchSession]);
+
   // Return to library
   const handleBack = useCallback(async () => {
     if (activeWatchSession) {
       await endWatchSession();
     }
-    setCurrentView('library');
-  }, [activeWatchSession]);
+    navigate(-1);
+  }, [activeWatchSession, navigate, endWatchSession]);
 
   // Load YouTube API and initialize player
   useEffect(() => {
@@ -128,6 +157,10 @@ export function PlayerView() {
         setIsPlaying(false);
         stopWatchTracking();
         if (state === PlayerState.ENDED) {
+          // Update watch history one final time before ending
+          if (activeWatchSession && totalWatchedSeconds > 0) {
+            updateWatchHistory(activeWatchSession, Math.floor(totalWatchedSeconds), playbackRate);
+          }
           endWatchSession();
         }
         break;
@@ -147,32 +180,6 @@ export function PlayerView() {
     }
   }, [currentVideo, activeWatchSession, setActiveWatchSession]);
 
-  // End watch session
-  const endWatchSession = useCallback(async () => {
-    if (!activeWatchSession) return;
-
-    try {
-      const finalSeconds = totalWatchedSeconds;
-      await DatabaseService.endWatchSession(activeWatchSession.id, finalSeconds);
-      
-      // Update video's last watched
-      if (currentVideo) {
-        await updateVideo(currentVideo.id, {
-          ...currentVideo,
-          addedAt: currentVideo.addedAt // Keep original addedAt
-        });
-      }
-
-      // Update global stats
-      updateTotalSeconds(finalSeconds);
-      
-      setActiveWatchSession(null);
-      setTotalWatchedSeconds(0);
-      setWatchStartTime(null);
-    } catch (error) {
-      console.error('Failed to end watch session:', error);
-    }
-  }, [activeWatchSession, totalWatchedSeconds, currentVideo, updateVideo, updateTotalSeconds, setActiveWatchSession]);
 
   // Start tracking watch time
   const startWatchTracking = useCallback(() => {
@@ -210,13 +217,8 @@ export function PlayerView() {
           
           // Save to database every 5 seconds
           if (Math.floor(newTotal) % 5 === 0 && Math.floor(newTotal) !== lastSavedTime) {
-            if (activeWatchSession) {
-              DatabaseService.updateWatchSession(activeWatchSession.id, {
-                secondsWatched: Math.floor(newTotal),
-                avgPlaybackRate: currentPlaybackRate
-              });
-              setLastSavedTime(Math.floor(newTotal));
-            }
+            updateWatchHistory(activeWatchSession, Math.floor(newTotal), currentPlaybackRate);
+            setLastSavedTime(Math.floor(newTotal));
           }
           
           return newTotal;
@@ -228,6 +230,19 @@ export function PlayerView() {
       setPlaybackRate(currentPlaybackRate);
     }, 1000);
   }, [player, isPlayerReady, activeWatchSession, lastSavedTime, startWatchSession]);
+
+  // Update watch history helper
+  const updateWatchHistory = useCallback(async (session: any, seconds: number, rate: number) => {
+    if (!session) return;
+    try {
+      await DatabaseService.updateWatchSession(session.id, {
+        secondsWatched: seconds,
+        avgPlaybackRate: rate
+      });
+    } catch (error) {
+      console.error('Failed to update watch history:', error);
+    }
+  }, []);
 
   // Stop tracking watch time
   const stopWatchTracking = useCallback(() => {

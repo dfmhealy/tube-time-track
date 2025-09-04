@@ -175,27 +175,43 @@ export const DatabaseService = {
     await db.userStats.update('default', updates);
   },
 
-  // Analytics
-  async getWeeklyWatchTime(): Promise<{ date: string; seconds: number }[]> {
-    const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  // Get weekly data for stats
+  async getWeeklyData(): Promise<{ date: string; seconds: number }[]> {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 6); // Last 7 days
     
     const sessions = await db.watchSessions
       .where('startedAt')
-      .above(oneWeekAgo.toISOString())
+      .between(startDate.toISOString(), endDate.toISOString())
       .toArray();
-
-    const dailyStats: Record<string, number> = {};
+    
+    // Group by date
+    const dailyTotals: { [date: string]: number } = {};
     
     sessions.forEach(session => {
-      const date = session.startedAt.split('T')[0];
-      dailyStats[date] = (dailyStats[date] || 0) + session.secondsWatched;
+      const date = new Date(session.startedAt).toISOString().split('T')[0];
+      dailyTotals[date] = (dailyTotals[date] || 0) + session.secondsWatched;
     });
+    
+    // Create array with all 7 days, filling in zeros
+    const result = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      result.push({
+        date: dateStr,
+        seconds: dailyTotals[dateStr] || 0
+      });
+    }
+    
+    return result;
+  },
 
-    return Object.entries(dailyStats).map(([date, seconds]) => ({
-      date,
-      seconds
-    }));
+  // Analytics  
+  async getWeeklyWatchTime(): Promise<{ date: string; seconds: number }[]> {
+    return this.getWeeklyData();
   },
 
   async exportData(): Promise<string> {

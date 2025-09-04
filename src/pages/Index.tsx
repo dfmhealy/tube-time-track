@@ -2,6 +2,7 @@ import { Layout } from '@/components/Layout';
 import { Home } from './Home';
 import { Library } from './Library';
 import { PlayerView } from './PlayerView';
+import { Stats } from './Stats';
 import { useAppStore } from '@/store/appStore';
 
 const Index = () => {
@@ -12,7 +13,7 @@ const Index = () => {
       case 'library':
         return <Library />;
       case 'stats':
-        return <div className="text-center py-16">Stats view coming soon!</div>;
+        return <Stats />;
       case 'settings':
         return <div className="text-center py-16">Settings view coming soon!</div>;
       case 'player':
