@@ -10,6 +10,8 @@ export interface Video {
   thumbnailUrl: string;
   tags: string[];
   addedAt: string; // ISO string
+  watchSeconds: number;
+  lastWatchedAt: string | null;
 }
 
 export interface WatchSession {
@@ -79,9 +81,11 @@ db.on('ready', async () => {
 export const DatabaseService = {
   // Video operations
   async addVideo(video: Omit<Video, 'id'>): Promise<Video> {
-    const videoWithId = {
+    const videoWithId: Video = {
       ...video,
-      id: crypto.randomUUID()
+      id: crypto.randomUUID(),
+      watchSeconds: 0,
+      lastWatchedAt: null
     };
     await db.videos.add(videoWithId);
     return videoWithId;
