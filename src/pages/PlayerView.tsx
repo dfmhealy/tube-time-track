@@ -150,9 +150,9 @@ function PlayerViewContent() {
       toast.error('Could not save watch progress.');
     } finally {
       setCurrentView('library');
-      navigate('/library');
+      navigate('/');
     }
-  }, [activeWatchSession, navigate, setCurrentView, endWatchSession]);
+  }, [activeWatchSession, setCurrentView, endWatchSession, navigate]);
 
   const handlePlayerStateChange = useCallback(async (state: number) => {
     const { activeWatchSession: session, totalWatchedSeconds: watched, lastSavedTime: saved, playbackRate: rate } = stateRef.current;
