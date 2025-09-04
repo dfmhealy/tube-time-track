@@ -3,6 +3,7 @@ import { Home } from './Home';
 import { Library } from './Library';
 import { PlayerView } from './PlayerView';
 import { Stats } from './Stats';
+import Settings from './Settings';
 import { useAppStore } from '@/store/appStore';
 
 const Index = () => {
@@ -15,7 +16,7 @@ const Index = () => {
       case 'stats':
         return <Stats />;
       case 'settings':
-        return <div className="text-center py-16">Settings view coming soon!</div>;
+        return <Settings />;
       case 'player':
         return <PlayerView />;
       default:

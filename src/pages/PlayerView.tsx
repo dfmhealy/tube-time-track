@@ -8,8 +8,8 @@ import { Card } from '@/components/ui/card';
 import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore, useLibraryStore, useStatsStore } from '@/store/appStore';
-import type { Video, WatchSession } from '@/lib/database';
 import { DatabaseService } from '@/lib/database';
+import type { Video, WatchSession } from '@/lib/database';
 import { formatDuration, cn } from '@/lib/utils';
 
 // Type definitions
@@ -329,8 +329,68 @@ function PlayerViewContent() {
     setPlaybackRate(rate);
     showControlsTemporarily();
   }, [player, showControlsTemporarily]);
+
+  // Get the daily goal from the app store
+  const { weeklyGoal } = useAppStore();
+  // Use weeklyGoal as the daily goal (in seconds)
+  const dailyGoalSeconds = weeklyGoal || 5 * 3600; // Default to 5 hours if not set
+
+  // Track daily watch time
+  const [dailyWatchTime, setDailyWatchTime] = useState(0);
+  const [lastUpdated, setLastUpdated] = useState(0);
+
+  // Update watch time
+  useEffect(() => {
+    const updateWatchTime = async () => {
+      try {
+        // Get today's date in local timezone
+        const now = new Date();
+        const today = now.toISOString().split('T')[0];
+        
+        // Get all watch sessions
+        const sessions = await DatabaseService.getAllWatchSessions();
+        
+        // Calculate total watch time for today
+        const todaySessions = sessions.filter(session => 
+          session.endedAt && session.endedAt.startsWith(today)
+        );
+        
+        let todayWatchTime = todaySessions.reduce(
+          (total, session) => total + (session.secondsWatched || 0), 0
+        );
+        
+        // Add current session time if active
+        if (activeWatchSession) {
+          const currentSessionTime = Math.floor((Date.now() - new Date(activeWatchSession.startedAt).getTime()) / 1000);
+          todayWatchTime += currentSessionTime;
+        }
+        
+        setDailyWatchTime(todayWatchTime);
+        setLastUpdated(Date.now());
+      } catch (error) {
+        console.error('Error updating watch time:', error);
+      }
+    };
+
+    updateWatchTime();
+    
+    // Refresh more frequently if there's an active session
+    const interval = setInterval(updateWatchTime, activeWatchSession ? 10000 : 60000);
+    return () => clearInterval(interval);
+  }, [activeWatchSession, lastUpdated]);
+
+  // Calculate progress percentage
+  const progressPercentage = useMemo(() => {
+    return dailyGoalSeconds > 0 ? Math.min(100, (dailyWatchTime / dailyGoalSeconds) * 100) : 0;
+  }, [dailyWatchTime, dailyGoalSeconds]);
   
-  const progressPercentage = useMemo(() => (duration > 0 ? (currentTime / duration) * 100 : 0), [currentTime, duration]);
+  const formatTime = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours > 0 
+      ? `${hours}h ${minutes}m` 
+      : `${minutes}m`;
+  };
   
   return (
     <div className="h-screen bg-background flex flex-col">
@@ -347,8 +407,8 @@ function PlayerViewContent() {
             </div>
           </div>
           <div className="flex items-center space-x-4 text-sm text-muted-foreground flex-shrink-0">
-            <span>{formatDuration(currentTime)} / {formatDuration(duration)}</span>
-            <Badge variant="secondary">{Math.round(progressPercentage)}% complete</Badge>
+            <span>{formatTime(dailyWatchTime)} / {formatTime(dailyGoalSeconds)}</span>
+            <Badge variant="secondary">{Math.round(progressPercentage)}% of daily goal</Badge>
           </div>
         </div>
       </div>
