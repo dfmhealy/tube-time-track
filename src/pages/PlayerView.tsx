@@ -10,12 +10,14 @@ import { loadYouTubeAPI, PlayerState, formatDuration, type YouTubePlayer } from 
 import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Maximize, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useVideoStats } from '@/hooks/useVideoStats';
 
 export function PlayerView() {
   const navigate = useNavigate();
   const { currentVideo, setCurrentView, activeWatchSession, setActiveWatchSession } = useAppStore();
   const { updateTotalSeconds } = useStatsStore();
   const { updateVideo } = useLibraryStore();
+  const { stats, loading: statsLoading, error: statsError } = useVideoStats(currentVideo?.id);
   
   // Player state
   const [player, setPlayer] = useState<YouTubePlayer | null>(null);
@@ -70,10 +72,15 @@ export function PlayerView() {
 
   // Return to library
   const handleBack = useCallback(async () => {
-    if (activeWatchSession) {
-      await endWatchSession();
+    try {
+      if (activeWatchSession) {
+        await endWatchSession();
+      }
+      navigate(-1);
+    } catch (error) {
+      console.error('Error during back navigation:', error);
+      navigate(-1); // Navigate anyway
     }
-    navigate(-1);
   }, [activeWatchSession, navigate, endWatchSession]);
 
   // Load YouTube API and initialize player
@@ -203,7 +210,11 @@ export function PlayerView() {
       const playerState = player.getPlayerState();
       const currentPlaybackRate = player.getPlaybackRate();
       
-      // Only count if all conditions are met
+      // Always update current time and playback rate
+      setCurrentTime(player.getCurrentTime());
+      setPlaybackRate(currentPlaybackRate);
+      
+      // Only count watch time if all conditions are met
       const shouldCount = 
         playerState === PlayerState.PLAYING &&
         isVisible &&
@@ -224,10 +235,6 @@ export function PlayerView() {
           return newTotal;
         });
       }
-
-      // Update current time for progress bar
-      setCurrentTime(player.getCurrentTime());
-      setPlaybackRate(currentPlaybackRate);
     }, 1000);
   }, [player, isPlayerReady, activeWatchSession, lastSavedTime, startWatchSession]);
 
@@ -290,6 +297,7 @@ export function PlayerView() {
   const seekTo = (seconds: number) => {
     if (!player) return;
     player.seekTo(seconds, true);
+    setCurrentTime(seconds);
   };
 
   const skip = (seconds: number) => {
@@ -415,14 +423,24 @@ export function PlayerView() {
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
             {/* Progress bar */}
             <div className="mb-4">
-              <div className="relative">
-                <Progress 
-                  value={progressPercentage} 
-                  className="h-1 bg-white/30" 
+              <div className="relative group">
+                <input
+                  type="range"
+                  min={0}
+                  max={duration}
+                  value={currentTime}
+                  onChange={(e) => {
+                    const newTime = Number(e.target.value);
+                    seekTo(newTime);
+                  }}
+                  className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${progressPercentage}%, rgba(255,255,255,0.3) ${progressPercentage}%, rgba(255,255,255,0.3) 100%)`
+                  }}
                 />
                 {/* Watched progress indicator */}
                 <div 
-                  className="absolute top-0 left-0 h-1 bg-primary/60 rounded-full"
+                  className="absolute top-0 left-0 h-1 bg-primary/60 rounded-full pointer-events-none"
                   style={{ width: `${Math.min(watchedPercentage, progressPercentage)}%` }}
                 />
               </div>
@@ -546,6 +564,49 @@ export function PlayerView() {
           </div>
           
           <Progress value={watchedPercentage} className="mt-4" />
+        </Card>
+
+        {/* Video Stats */}
+        <Card className="p-4 mt-4">
+          <h3 className="font-semibold mb-4">Video Stats</h3>
+          
+          {statsLoading ? (
+            <div className="text-sm text-muted-foreground">Loading stats...</div>
+          ) : statsError ? (
+            <div className="text-sm text-red-500">Failed to load stats</div>
+          ) : stats ? (
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-sm text-muted-foreground">Total watch time:</span>
+                <span className="text-sm font-medium">
+                  {formatDuration(Math.floor(stats.totalWatchTime))}
+                </span>
+              </div>
+              
+              <div className="flex justify-between">
+                <span className="text-sm text-muted-foreground">Completion:</span>
+                <span className="text-sm font-medium">
+                  {Math.round(stats.completionPercentage)}%
+                </span>
+              </div>
+              
+              <div className="flex justify-between">
+                <span className="text-sm text-muted-foreground">Avg speed:</span>
+                <span className="text-sm font-medium">
+                  {stats.averagePlaybackRate.toFixed(2)}x
+                </span>
+              </div>
+              
+              <div className="flex justify-between">
+                <span className="text-sm text-muted-foreground">Sessions:</span>
+                <span className="text-sm font-medium">{stats.sessionCount}</span>
+              </div>
+              
+              <Progress value={stats.completionPercentage} className="mt-2" />
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">No stats yet</div>
+          )}
         </Card>
         
         {/* Video metadata */}

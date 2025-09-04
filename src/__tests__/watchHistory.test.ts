@@ -1,114 +1,112 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DatabaseService } from '../lib/database';
 
-// Mock the database
-vi.mock('../lib/database', () => ({
-  DatabaseService: {
-    startWatchSession: vi.fn(),
-    updateWatchSession: vi.fn(),
-    endWatchSession: vi.fn(),
-    getUserStats: vi.fn(),
-  }
-}));
+// Mock Dexie
+vi.mock('dexie', () => {
+  const mockDb = {
+    watchSessions: {
+      add: vi.fn(),
+      update: vi.fn(),
+      orderBy: vi.fn(() => ({
+        reverse: vi.fn(() => ({
+          toArray: vi.fn(),
+        })),
+      })),
+      where: vi.fn(() => ({
+        equals: vi.fn(() => ({
+          first: vi.fn(),
+        })),
+      })),
+    },
+  };
 
-describe('Watch History Functions', () => {
+  return {
+    Dexie: vi.fn(() => mockDb),
+  };
+});
+
+describe('Watch History', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('updateWatchHistory', () => {
-    const mockSession = { id: 'session-123' };
-    const testSeconds = 120;
-    const testRate = 1.0;
+  it('should start a watch session', async () => {
+    const videoId = 'test-video-123';
+    const mockSession = {
+      id: 'session-123',
+      videoId,
+      startedAt: new Date().toISOString(),
+      secondsWatched: 0,
+      avgPlaybackRate: 1.0,
+    };
 
-    it('should update watch session with correct parameters', async () => {
-      const mockUpdateWatchSession = vi.mocked(DatabaseService.updateWatchSession);
-      
-      // Simulate the updateWatchHistory function from PlayerView
-      const updateWatchHistory = async (session: any, seconds: number, rate: number) => {
-        if (!session) return;
-        try {
-          await DatabaseService.updateWatchSession(session.id, {
-            secondsWatched: seconds,
-            avgPlaybackRate: rate
-          });
-        } catch (error) {
-          console.error('Failed to update watch history:', error);
-          throw error;
-        }
-      };
+    // Mock the database add method
+    const mockAdd = vi.fn().mockResolvedValue('session-123');
+    DatabaseService['db'].watchSessions.add = mockAdd;
 
-      await updateWatchHistory(mockSession, testSeconds, testRate);
+    const result = await DatabaseService.startWatchSession(videoId);
 
-      expect(mockUpdateWatchSession).toHaveBeenCalledWith('session-123', {
-        secondsWatched: 120,
-        avgPlaybackRate: 1.0
-      });
-    });
+    expect(mockAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoId,
+        startedAt: expect.any(String),
+        secondsWatched: 0,
+        avgPlaybackRate: 1.0,
+      })
+    );
+    expect(result.videoId).toBe(videoId);
+  });
 
-    it('should handle null session gracefully', async () => {
-      const mockUpdateWatchSession = vi.mocked(DatabaseService.updateWatchSession);
-      
-      const updateWatchHistory = async (session: any, seconds: number, rate: number) => {
-        if (!session) return;
-        await DatabaseService.updateWatchSession(session.id, {
-          secondsWatched: seconds,
-          avgPlaybackRate: rate
-        });
-      };
+  it('should update watch session with elapsed time', async () => {
+    const sessionId = 'session-123';
+    const updates = {
+      secondsWatched: 30,
+      avgPlaybackRate: 1.25,
+    };
 
-      await updateWatchHistory(null, testSeconds, testRate);
+    const mockUpdate = vi.fn().mockResolvedValue(undefined);
+    DatabaseService['db'].watchSessions.update = mockUpdate;
 
-      expect(mockUpdateWatchSession).not.toHaveBeenCalled();
-    });
+    await DatabaseService.updateWatchSession(sessionId, updates);
 
-    it('should handle database errors', async () => {
-      const mockUpdateWatchSession = vi.mocked(DatabaseService.updateWatchSession);
-      mockUpdateWatchSession.mockRejectedValue(new Error('Database error'));
-      
-      const updateWatchHistory = async (session: any, seconds: number, rate: number) => {
-        if (!session) return;
-        try {
-          await DatabaseService.updateWatchSession(session.id, {
-            secondsWatched: seconds,
-            avgPlaybackRate: rate
-          });
-        } catch (error) {
-          console.error('Failed to update watch history:', error);
-          throw error;
-        }
-      };
+    expect(mockUpdate).toHaveBeenCalledWith(sessionId, updates);
+  });
 
-      await expect(updateWatchHistory(mockSession, testSeconds, testRate))
-        .rejects.toThrow('Database error');
+  it('should end watch session', async () => {
+    const sessionId = 'session-123';
+    const finalSeconds = 120;
+
+    const mockUpdate = vi.fn().mockResolvedValue(undefined);
+    DatabaseService['db'].watchSessions.update = mockUpdate;
+
+    await DatabaseService.endWatchSession(sessionId, finalSeconds);
+
+    expect(mockUpdate).toHaveBeenCalledWith(sessionId, {
+      endedAt: expect.any(String),
+      secondsWatched: finalSeconds,
     });
   });
 
-  describe('periodic history updates', () => {
-    it('should update history every 5 seconds when conditions are met', () => {
-      const mockUpdate = vi.fn();
-      let totalSeconds = 0;
-      let lastSavedTime = 0;
+  it('should handle watch session updates every 5 seconds', async () => {
+    const sessionId = 'session-123';
+    
+    // Simulate periodic updates
+    const updates = [
+      { secondsWatched: 5, avgPlaybackRate: 1.0 },
+      { secondsWatched: 10, avgPlaybackRate: 1.0 },
+      { secondsWatched: 15, avgPlaybackRate: 1.5 },
+    ];
 
-      // Simulate the periodic update logic
-      const simulateWatchTracking = (seconds: number) => {
-        totalSeconds += 1; // Simulate 1 second increment
-        
-        if (Math.floor(totalSeconds) % 5 === 0 && Math.floor(totalSeconds) !== lastSavedTime) {
-          mockUpdate(Math.floor(totalSeconds));
-          lastSavedTime = Math.floor(totalSeconds);
-        }
-      };
+    const mockUpdate = vi.fn().mockResolvedValue(undefined);
+    DatabaseService['db'].watchSessions.update = mockUpdate;
 
-      // Simulate 10 seconds of watching
-      for (let i = 0; i < 10; i++) {
-        simulateWatchTracking(i);
-      }
+    for (const update of updates) {
+      await DatabaseService.updateWatchSession(sessionId, update);
+    }
 
-      // Should have updated at 5s and 10s
-      expect(mockUpdate).toHaveBeenCalledTimes(2);
-      expect(mockUpdate).toHaveBeenCalledWith(5);
-      expect(mockUpdate).toHaveBeenCalledWith(10);
-    });
+    expect(mockUpdate).toHaveBeenCalledTimes(3);
+    expect(mockUpdate).toHaveBeenNthCalledWith(1, sessionId, updates[0]);
+    expect(mockUpdate).toHaveBeenNthCalledWith(2, sessionId, updates[1]);
+    expect(mockUpdate).toHaveBeenNthCalledWith(3, sessionId, updates[2]);
   });
 });

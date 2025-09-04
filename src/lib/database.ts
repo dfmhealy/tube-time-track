@@ -245,6 +245,10 @@ export const DatabaseService = {
       if (data.userStats) await db.userStats.add(data.userStats);
       if (data.appMeta) await db.appMeta.add(data.appMeta);
     });
+  },
+
+  async getAllWatchSessions(): Promise<WatchSession[]> {
+    return await db.watchSessions.orderBy('startedAt').reverse().toArray();
   }
 };
 
