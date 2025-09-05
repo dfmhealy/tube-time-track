@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      user_preferences: {
+        Row: {
+          auto_play: boolean | null
+          created_at: string | null
+          default_playback_rate: number | null
+          id: string
+          notifications_enabled: boolean | null
+          theme: string | null
+          updated_at: string | null
+          user_id: string
+          volume_preference: number | null
+        }
+        Insert: {
+          auto_play?: boolean | null
+          created_at?: string | null
+          default_playback_rate?: number | null
+          id?: string
+          notifications_enabled?: boolean | null
+          theme?: string | null
+          updated_at?: string | null
+          user_id: string
+          volume_preference?: number | null
+        }
+        Update: {
+          auto_play?: boolean | null
+          created_at?: string | null
+          default_playback_rate?: number | null
+          id?: string
+          notifications_enabled?: boolean | null
+          theme?: string | null
+          updated_at?: string | null
+          user_id?: string
+          volume_preference?: number | null
+        }
+        Relationships: []
+      }
       user_profiles: {
         Row: {
           created_at: string | null
