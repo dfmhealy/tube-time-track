@@ -14,7 +14,10 @@ import { formatDuration, cn } from '@/lib/utils';
 
 // Type definitions
 declare global {
-  interface Window { YT: any; onYouTubeIframeAPIReady: () => void; }
+  interface Window { 
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
 }
 interface YouTubePlayer {
   playVideo(): void;

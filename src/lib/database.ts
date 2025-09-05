@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable } from 'dexie';
+import { supabase } from '@/integrations/supabase/client';
 
 // Data Models
 export interface Video {
@@ -21,7 +21,7 @@ export interface WatchSession {
   endedAt: string | null;
   secondsWatched: number;
   avgPlaybackRate: number;
-  source: 'web';
+  source: string;
 }
 
 export interface UserStats {
@@ -32,137 +32,241 @@ export interface UserStats {
   streakDays: number;
 }
 
-export interface AppMeta {
+export interface UserPreferences {
   id: string;
-  schemaVersion: number;
-  userId?: string;
-  createdAt: string;
+  autoPlay: boolean;
+  defaultPlaybackRate: number;
+  volumePreference: number;
+  theme: string;
+  notificationsEnabled: boolean;
 }
-
-// Database Schema
-const db = new Dexie('YouTubeTracker') as Dexie & {
-  videos: EntityTable<Video, 'id'>;
-  watchSessions: EntityTable<WatchSession, 'id'>;
-  userStats: EntityTable<UserStats, 'id'>;
-  appMeta: EntityTable<AppMeta, 'id'>;
-};
-
-// Database version and schema
-db.version(1).stores({
-  videos: 'id, youtubeId, title, channelTitle, addedAt, *tags',
-  watchSessions: 'id, videoId, startedAt, endedAt, secondsWatched',
-  userStats: 'id',
-  appMeta: 'id'
-});
-
-// Initialize default data
-db.on('ready', async () => {
-  // Check if this is first time setup
-  const meta = await db.appMeta.get('default');
-  if (!meta) {
-    // Initialize with default values
-    await db.appMeta.add({
-      id: 'default',
-      schemaVersion: 1,
-      createdAt: new Date().toISOString()
-    });
-
-    await db.userStats.add({
-      id: 'default',
-      totalSeconds: 0,
-      weeklyGoalSeconds: 5 * 60 * 60, // 5 hours default
-      lastWatchedAt: null,
-      streakDays: 0
-    });
-  }
-});
 
 // Database utility functions
 export const DatabaseService = {
   // Video operations
-  async addVideo(video: Omit<Video, 'id'>): Promise<Video> {
-    const videoWithId: Video = {
-      ...video,
-      id: crypto.randomUUID(),
-      watchSeconds: 0,
-      lastWatchedAt: null
+  async addVideo(video: Omit<Video, 'id' | 'watchSeconds' | 'lastWatchedAt'>): Promise<Video> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { data, error } = await supabase
+      .from('videos')
+      .insert({
+        user_id: user.id,
+        youtube_id: video.youtubeId,
+        title: video.title,
+        channel_title: video.channelTitle,
+        duration_seconds: video.durationSeconds,
+        thumbnail_url: video.thumbnailUrl,
+        tags: video.tags,
+        added_at: video.addedAt,
+        watch_seconds: 0,
+        last_watched_at: null
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return {
+      id: data.id,
+      youtubeId: data.youtube_id,
+      title: data.title,
+      channelTitle: data.channel_title,
+      durationSeconds: data.duration_seconds,
+      thumbnailUrl: data.thumbnail_url,
+      tags: data.tags,
+      addedAt: data.added_at,
+      watchSeconds: data.watch_seconds,
+      lastWatchedAt: data.last_watched_at
     };
-    await db.videos.add(videoWithId);
-    return videoWithId;
   },
 
   async getVideo(id: string): Promise<Video | undefined> {
-    return await db.videos.get(id);
+    const { data, error } = await supabase
+      .from('videos')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error || !data) return undefined;
+
+    return {
+      id: data.id,
+      youtubeId: data.youtube_id,
+      title: data.title,
+      channelTitle: data.channel_title,
+      durationSeconds: data.duration_seconds,
+      thumbnailUrl: data.thumbnail_url,
+      tags: data.tags,
+      addedAt: data.added_at,
+      watchSeconds: data.watch_seconds,
+      lastWatchedAt: data.last_watched_at
+    };
   },
 
   async getVideoByYouTubeId(youtubeId: string): Promise<Video | undefined> {
-    return await db.videos.where('youtubeId').equals(youtubeId).first();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return undefined;
+
+    const { data, error } = await supabase
+      .from('videos')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('youtube_id', youtubeId)
+      .maybeSingle();
+
+    if (error || !data) return undefined;
+
+    return {
+      id: data.id,
+      youtubeId: data.youtube_id,
+      title: data.title,
+      channelTitle: data.channel_title,
+      durationSeconds: data.duration_seconds,
+      thumbnailUrl: data.thumbnail_url,
+      tags: data.tags,
+      addedAt: data.added_at,
+      watchSeconds: data.watch_seconds,
+      lastWatchedAt: data.last_watched_at
+    };
   },
 
   async getAllVideos(): Promise<Video[]> {
-    return await db.videos.orderBy('addedAt').reverse().toArray();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from('videos')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('added_at', { ascending: false });
+
+    if (error) return [];
+
+    return data.map(video => ({
+      id: video.id,
+      youtubeId: video.youtube_id,
+      title: video.title,
+      channelTitle: video.channel_title,
+      durationSeconds: video.duration_seconds,
+      thumbnailUrl: video.thumbnail_url,
+      tags: video.tags,
+      addedAt: video.added_at,
+      watchSeconds: video.watch_seconds,
+      lastWatchedAt: video.last_watched_at
+    }));
   },
 
   async searchVideos(query: string): Promise<Video[]> {
-    const lowerQuery = query.toLowerCase();
-    return await db.videos
-      .filter(video => 
-        video.title.toLowerCase().includes(lowerQuery) ||
-        video.channelTitle.toLowerCase().includes(lowerQuery) ||
-        video.tags.some(tag => tag.toLowerCase().includes(lowerQuery))
-      )
-      .toArray();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from('videos')
+      .select('*')
+      .eq('user_id', user.id)
+      .or(`title.ilike.%${query}%, channel_title.ilike.%${query}%`);
+
+    if (error) return [];
+
+    return data.map(video => ({
+      id: video.id,
+      youtubeId: video.youtube_id,
+      title: video.title,
+      channelTitle: video.channel_title,
+      durationSeconds: video.duration_seconds,
+      thumbnailUrl: video.thumbnail_url,
+      tags: video.tags,
+      addedAt: video.added_at,
+      watchSeconds: video.watch_seconds,
+      lastWatchedAt: video.last_watched_at
+    }));
   },
 
   async deleteVideo(id: string): Promise<void> {
-    await db.transaction('rw', [db.videos, db.watchSessions], async () => {
-      await db.videos.delete(id);
-      await db.watchSessions.where('videoId').equals(id).delete();
-    });
+    const { error } = await supabase
+      .from('videos')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
   },
 
   // Watch session operations
   async startWatchSession(videoId: string): Promise<WatchSession> {
-    const session: WatchSession = {
-      id: crypto.randomUUID(),
-      videoId,
-      startedAt: new Date().toISOString(),
-      endedAt: null,
-      secondsWatched: 0,
-      avgPlaybackRate: 1.0,
-      source: 'web'
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { data, error } = await supabase
+      .from('watch_sessions')
+      .insert({
+        user_id: user.id,
+        video_id: videoId,
+        started_at: new Date().toISOString(),
+        seconds_watched: 0,
+        avg_playback_rate: 1.0,
+        source: 'web'
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return {
+      id: data.id,
+      videoId: data.video_id,
+      startedAt: data.started_at,
+      endedAt: data.ended_at,
+      secondsWatched: data.seconds_watched,
+      avgPlaybackRate: data.avg_playback_rate,
+      source: data.source
     };
-    await db.watchSessions.add(session);
-    return session;
   },
 
   async updateWatchSession(sessionId: string, updates: Partial<WatchSession>): Promise<void> {
-    await db.watchSessions.update(sessionId, updates);
+    const updateData: any = {};
+    
+    if (updates.secondsWatched !== undefined) updateData.seconds_watched = updates.secondsWatched;
+    if (updates.avgPlaybackRate !== undefined) updateData.avg_playback_rate = updates.avgPlaybackRate;
+    if (updates.endedAt !== undefined) updateData.ended_at = updates.endedAt;
+
+    const { error } = await supabase
+      .from('watch_sessions')
+      .update(updateData)
+      .eq('id', sessionId);
+
+    if (error) throw error;
   },
 
   async endWatchSession(sessionId: string, finalSecondsWatched: number): Promise<void> {
-    await db.transaction('rw', [db.watchSessions, db.userStats], async () => {
-      await db.watchSessions.update(sessionId, {
-        endedAt: new Date().toISOString(),
-        secondsWatched: finalSecondsWatched
-      });
+    const { error } = await supabase
+      .from('watch_sessions')
+      .update({
+        ended_at: new Date().toISOString(),
+        seconds_watched: finalSecondsWatched
+      })
+      .eq('id', sessionId);
 
-      // Update user stats
-      const stats = await db.userStats.get('default');
-      if (stats) {
-        await db.userStats.update('default', {
-          totalSeconds: stats.totalSeconds + finalSecondsWatched,
-          lastWatchedAt: new Date().toISOString()
-        });
-      }
-    });
+    if (error) throw error;
   },
 
   async getWatchSessionsForVideo(videoId: string): Promise<WatchSession[]> {
-    return await db.watchSessions
-      .where('videoId')
-      .equals(videoId)
-      .toArray();
+    const { data, error } = await supabase
+      .from('watch_sessions')
+      .select('*')
+      .eq('video_id', videoId);
+
+    if (error) return [];
+
+    return data.map(session => ({
+      id: session.id,
+      videoId: session.video_id,
+      startedAt: session.started_at,
+      endedAt: session.ended_at,
+      secondsWatched: session.seconds_watched,
+      avgPlaybackRate: session.avg_playback_rate,
+      source: session.source
+    }));
   },
 
   async getTotalWatchTimeForVideo(videoId: string): Promise<number> {
@@ -172,30 +276,69 @@ export const DatabaseService = {
 
   // User stats operations
   async getUserStats(): Promise<UserStats | undefined> {
-    return await db.userStats.get('default');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return undefined;
+
+    const { data, error } = await supabase
+      .from('user_stats')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (error || !data) return undefined;
+
+    return {
+      id: data.id,
+      totalSeconds: data.total_seconds,
+      weeklyGoalSeconds: data.weekly_goal_seconds,
+      lastWatchedAt: data.last_watched_at,
+      streakDays: data.streak_days
+    };
   },
 
   async updateUserStats(updates: Partial<UserStats>): Promise<void> {
-    await db.userStats.update('default', updates);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const updateData: any = {};
+    if (updates.totalSeconds !== undefined) updateData.total_seconds = updates.totalSeconds;
+    if (updates.weeklyGoalSeconds !== undefined) updateData.weekly_goal_seconds = updates.weeklyGoalSeconds;
+    if (updates.lastWatchedAt !== undefined) updateData.last_watched_at = updates.lastWatchedAt;
+    if (updates.streakDays !== undefined) updateData.streak_days = updates.streakDays;
+
+    const { error } = await supabase
+      .from('user_stats')
+      .update(updateData)
+      .eq('user_id', user.id);
+
+    if (error) throw error;
   },
 
   // Get weekly data for stats
   async getWeeklyData(): Promise<{ date: string; seconds: number }[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 6); // Last 7 days
     
-    const sessions = await db.watchSessions
-      .where('startedAt')
-      .between(startDate.toISOString(), endDate.toISOString())
-      .toArray();
+    const { data, error } = await supabase
+      .from('watch_sessions')
+      .select('started_at, seconds_watched')
+      .eq('user_id', user.id)
+      .gte('started_at', startDate.toISOString())
+      .lte('started_at', endDate.toISOString())
+      .not('ended_at', 'is', null);
+
+    if (error) return [];
     
     // Group by date
     const dailyTotals: { [date: string]: number } = {};
     
-    sessions.forEach(session => {
-      const date = new Date(session.startedAt).toISOString().split('T')[0];
-      dailyTotals[date] = (dailyTotals[date] || 0) + session.secondsWatched;
+    data.forEach(session => {
+      const date = new Date(session.started_at).toISOString().split('T')[0];
+      dailyTotals[date] = (dailyTotals[date] || 0) + (session.seconds_watched || 0);
     });
     
     // Create array with all 7 days, filling in zeros
@@ -218,42 +361,68 @@ export const DatabaseService = {
     return this.getWeeklyData();
   },
 
-  async exportData(): Promise<string> {
-    const videos = await db.videos.toArray();
-    const sessions = await db.watchSessions.toArray();
-    const stats = await db.userStats.get('default');
-    const meta = await db.appMeta.get('default');
-
-    return JSON.stringify({
-      videos,
-      watchSessions: sessions,
-      userStats: stats,
-      appMeta: meta,
-      exportedAt: new Date().toISOString()
-    }, null, 2);
-  },
-
-  async importData(jsonData: string): Promise<void> {
-    const data = JSON.parse(jsonData);
-    
-    await db.transaction('rw', [db.videos, db.watchSessions, db.userStats, db.appMeta], async () => {
-      // Clear existing data
-      await db.videos.clear();
-      await db.watchSessions.clear();
-      await db.userStats.clear();
-      await db.appMeta.clear();
-
-      // Import new data
-      if (data.videos) await db.videos.bulkAdd(data.videos);
-      if (data.watchSessions) await db.watchSessions.bulkAdd(data.watchSessions);
-      if (data.userStats) await db.userStats.add(data.userStats);
-      if (data.appMeta) await db.appMeta.add(data.appMeta);
-    });
-  },
-
   async getAllWatchSessions(): Promise<WatchSession[]> {
-    return await db.watchSessions.orderBy('startedAt').reverse().toArray();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from('watch_sessions')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('started_at', { ascending: false });
+
+    if (error) return [];
+
+    return data.map(session => ({
+      id: session.id,
+      videoId: session.video_id,
+      startedAt: session.started_at,
+      endedAt: session.ended_at,
+      secondsWatched: session.seconds_watched,
+      avgPlaybackRate: session.avg_playback_rate,
+      source: session.source
+    }));
+  },
+
+  // User preferences operations
+  async getUserPreferences(): Promise<UserPreferences | undefined> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return undefined;
+
+    const { data, error } = await supabase
+      .from('user_preferences')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (error || !data) return undefined;
+
+    return {
+      id: data.id,
+      autoPlay: data.auto_play,
+      defaultPlaybackRate: data.default_playback_rate,
+      volumePreference: data.volume_preference,
+      theme: data.theme,
+      notificationsEnabled: data.notifications_enabled
+    };
+  },
+
+  async updateUserPreferences(updates: Partial<UserPreferences>): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const updateData: any = {};
+    if (updates.autoPlay !== undefined) updateData.auto_play = updates.autoPlay;
+    if (updates.defaultPlaybackRate !== undefined) updateData.default_playback_rate = updates.defaultPlaybackRate;
+    if (updates.volumePreference !== undefined) updateData.volume_preference = updates.volumePreference;
+    if (updates.theme !== undefined) updateData.theme = updates.theme;
+    if (updates.notificationsEnabled !== undefined) updateData.notifications_enabled = updates.notificationsEnabled;
+
+    const { error } = await supabase
+      .from('user_preferences')
+      .update(updateData)
+      .eq('user_id', user.id);
+
+    if (error) throw error;
   }
 };
-
-export default db;
