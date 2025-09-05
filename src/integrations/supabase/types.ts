@@ -14,7 +14,155 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      user_profiles: {
+        Row: {
+          created_at: string | null
+          display_name: string | null
+          id: string
+          timezone: string | null
+          updated_at: string | null
+          user_id: string
+          weekly_goal_seconds: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          display_name?: string | null
+          id?: string
+          timezone?: string | null
+          updated_at?: string | null
+          user_id: string
+          weekly_goal_seconds?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          display_name?: string | null
+          id?: string
+          timezone?: string | null
+          updated_at?: string | null
+          user_id?: string
+          weekly_goal_seconds?: number | null
+        }
+        Relationships: []
+      }
+      user_stats: {
+        Row: {
+          created_at: string | null
+          id: string
+          last_watched_at: string | null
+          streak_days: number | null
+          total_seconds: number | null
+          updated_at: string | null
+          user_id: string
+          weekly_goal_seconds: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          last_watched_at?: string | null
+          streak_days?: number | null
+          total_seconds?: number | null
+          updated_at?: string | null
+          user_id: string
+          weekly_goal_seconds?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          last_watched_at?: string | null
+          streak_days?: number | null
+          total_seconds?: number | null
+          updated_at?: string | null
+          user_id?: string
+          weekly_goal_seconds?: number | null
+        }
+        Relationships: []
+      }
+      videos: {
+        Row: {
+          added_at: string | null
+          channel_title: string
+          duration_seconds: number | null
+          id: string
+          last_watched_at: string | null
+          tags: string[] | null
+          thumbnail_url: string
+          title: string
+          user_id: string
+          watch_seconds: number | null
+          youtube_id: string
+        }
+        Insert: {
+          added_at?: string | null
+          channel_title: string
+          duration_seconds?: number | null
+          id?: string
+          last_watched_at?: string | null
+          tags?: string[] | null
+          thumbnail_url: string
+          title: string
+          user_id: string
+          watch_seconds?: number | null
+          youtube_id: string
+        }
+        Update: {
+          added_at?: string | null
+          channel_title?: string
+          duration_seconds?: number | null
+          id?: string
+          last_watched_at?: string | null
+          tags?: string[] | null
+          thumbnail_url?: string
+          title?: string
+          user_id?: string
+          watch_seconds?: number | null
+          youtube_id?: string
+        }
+        Relationships: []
+      }
+      watch_sessions: {
+        Row: {
+          avg_playback_rate: number | null
+          created_at: string | null
+          ended_at: string | null
+          id: string
+          seconds_watched: number | null
+          source: string | null
+          started_at: string | null
+          user_id: string
+          video_id: string
+        }
+        Insert: {
+          avg_playback_rate?: number | null
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          seconds_watched?: number | null
+          source?: string | null
+          started_at?: string | null
+          user_id: string
+          video_id: string
+        }
+        Update: {
+          avg_playback_rate?: number | null
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          seconds_watched?: number | null
+          source?: string | null
+          started_at?: string | null
+          user_id?: string
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "watch_sessions_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
