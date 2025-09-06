@@ -11,36 +11,7 @@ import { useAppStore, useLibraryStore, useStatsStore } from '@/store/appStore';
 import { DatabaseService } from '@/lib/database';
 import type { Video, WatchSession } from '@/lib/database';
 import { formatDuration, cn } from '@/lib/utils';
-
-// Type definitions
-declare global {
-  interface Window { 
-    YT: any;
-    onYouTubeIframeAPIReady: () => void;
-  }
-}
-interface YouTubePlayer {
-  playVideo(): void;
-  pauseVideo(): void;
-  seekTo(seconds: number, allowSeekAhead: boolean): void;
-  getCurrentTime(): number;
-  getDuration(): number;
-  getPlayerState(): number;
-  setPlaybackRate(rate: number): void;
-  getPlaybackRate(): number;
-  mute(): void;
-  unMute(): void;
-  isMuted(): boolean;
-  destroy(): void;
-}
-enum PlayerState {
-  UNSTARTED = -1,
-  ENDED = 0,
-  PLAYING = 1,
-  PAUSED = 2,
-  BUFFERING = 3,
-  CUED = 5
-}
+import { YouTubePlayer, PlayerState } from '@/lib/youtube';
 
 export function PlayerView() {
   const handleError = useCallback((error: Error) => {
