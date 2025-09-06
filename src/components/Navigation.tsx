@@ -1,4 +1,4 @@
-import { Home, Library, BarChart3, Settings, Play } from 'lucide-react';
+import { Home, Library, BarChart3, Settings, Play, Headphones } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ export function Navigation({ mobile = false }: NavigationProps) {
   const navItems = [
     { id: 'home' as const, label: 'Home', icon: Home },
     { id: 'library' as const, label: 'Library', icon: Library },
+    { id: 'podcasts' as const, label: 'Podcasts', icon: Headphones },
     { id: 'stats' as const, label: 'Stats', icon: BarChart3 },
     { id: 'settings' as const, label: 'Settings', icon: Settings },
   ];

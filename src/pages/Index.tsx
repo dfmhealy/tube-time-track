@@ -1,6 +1,7 @@
 import { Layout } from '@/components/Layout';
 import { Home } from './Home';
 import { Library } from './Library';
+import { Podcasts } from './Podcasts';
 import { PlayerView } from './PlayerView';
 import { Stats } from './Stats';
 import Settings from './Settings';
@@ -13,6 +14,8 @@ const Index = () => {
     switch (currentView) {
       case 'library':
         return <Library />;
+      case 'podcasts':
+        return <Podcasts />;
       case 'stats':
         return <Stats />;
       case 'settings':

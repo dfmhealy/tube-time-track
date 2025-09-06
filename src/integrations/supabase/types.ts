@@ -14,6 +14,177 @@ export type Database = {
   }
   public: {
     Tables: {
+      podcast_episodes: {
+        Row: {
+          audio_url: string
+          created_at: string
+          description: string | null
+          duration_seconds: number | null
+          episode_number: number | null
+          id: string
+          podcast_id: string
+          publish_date: string | null
+          season_number: number | null
+          thumbnail_url: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          audio_url: string
+          created_at?: string
+          description?: string | null
+          duration_seconds?: number | null
+          episode_number?: number | null
+          id?: string
+          podcast_id: string
+          publish_date?: string | null
+          season_number?: number | null
+          thumbnail_url?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          audio_url?: string
+          created_at?: string
+          description?: string | null
+          duration_seconds?: number | null
+          episode_number?: number | null
+          id?: string
+          podcast_id?: string
+          publish_date?: string | null
+          season_number?: number | null
+          thumbnail_url?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "podcast_episodes_podcast_id_fkey"
+            columns: ["podcast_id"]
+            isOneToOne: false
+            referencedRelation: "podcasts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      podcast_sessions: {
+        Row: {
+          avg_playback_rate: number | null
+          created_at: string
+          ended_at: string | null
+          episode_id: string
+          id: string
+          seconds_listened: number | null
+          source: string | null
+          started_at: string | null
+          user_id: string
+        }
+        Insert: {
+          avg_playback_rate?: number | null
+          created_at?: string
+          ended_at?: string | null
+          episode_id: string
+          id?: string
+          seconds_listened?: number | null
+          source?: string | null
+          started_at?: string | null
+          user_id: string
+        }
+        Update: {
+          avg_playback_rate?: number | null
+          created_at?: string
+          ended_at?: string | null
+          episode_id?: string
+          id?: string
+          seconds_listened?: number | null
+          source?: string | null
+          started_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "podcast_sessions_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "podcast_episodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      podcast_subscriptions: {
+        Row: {
+          id: string
+          podcast_id: string
+          subscribed_at: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          podcast_id: string
+          subscribed_at?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          podcast_id?: string
+          subscribed_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "podcast_subscriptions_podcast_id_fkey"
+            columns: ["podcast_id"]
+            isOneToOne: false
+            referencedRelation: "podcasts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      podcasts: {
+        Row: {
+          category: string | null
+          created_at: string
+          creator: string
+          description: string | null
+          id: string
+          language: string | null
+          rss_url: string | null
+          thumbnail_url: string
+          title: string
+          total_episodes: number | null
+          updated_at: string
+          website_url: string | null
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          creator: string
+          description?: string | null
+          id?: string
+          language?: string | null
+          rss_url?: string | null
+          thumbnail_url: string
+          title: string
+          total_episodes?: number | null
+          updated_at?: string
+          website_url?: string | null
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          creator?: string
+          description?: string | null
+          id?: string
+          language?: string | null
+          rss_url?: string | null
+          thumbnail_url?: string
+          title?: string
+          total_episodes?: number | null
+          updated_at?: string
+          website_url?: string | null
+        }
+        Relationships: []
+      }
       user_preferences: {
         Row: {
           auto_play: boolean | null
