@@ -1,1 +1,4 @@
 project_id = "ugmlchfciufddnegcpgz"
+[db]
+port = 5432
+pooler = false

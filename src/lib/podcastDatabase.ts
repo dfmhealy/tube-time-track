@@ -64,6 +64,77 @@ export const PodcastDatabaseService = {
     return data || [];
   },
 
+  async createPodcast(podcast: Omit<Podcast, 'id' | 'created_at' | 'updated_at'>): Promise<Podcast> {
+    const { data, error } = await supabase
+      .from('podcasts')
+      .insert(podcast)
+      .select()
+      .single();
+    
+    if (error) throw new Error(`Failed to create podcast: ${error.message}`);
+    return data;
+  },
+
+  async createEpisode(episode: Omit<PodcastEpisode, 'id' | 'created_at' | 'updated_at'>): Promise<PodcastEpisode> {
+    const { data, error } = await supabase
+      .from('podcast_episodes')
+      .insert(episode)
+      .select()
+      .single();
+    
+    if (error) throw new Error(`Failed to create episode: ${error.message}`);
+    return data;
+  },
+
+  async importPodcastWithEpisodes(
+    podcastData: Omit<Podcast, 'id' | 'created_at' | 'updated_at'>,
+    episodesData: Omit<PodcastEpisode, 'id' | 'podcast_id' | 'created_at' | 'updated_at'>[]
+  ): Promise<{ podcast: Podcast; episodes: PodcastEpisode[] }> {
+    // Check if podcast already exists by RSS URL or title
+    if (podcastData.rss_url) {
+      const { data: existing } = await supabase
+        .from('podcasts')
+        .select('*')
+        .eq('rss_url', podcastData.rss_url)
+        .single();
+      
+      if (existing) {
+        throw new Error('Podcast already exists in your library');
+      }
+    }
+
+    // Create podcast
+    const podcast = await this.createPodcast(podcastData);
+
+    // Create episodes in batches to avoid timeout
+    const episodes: PodcastEpisode[] = [];
+    const batchSize = 10;
+    
+    for (let i = 0; i < episodesData.length; i += batchSize) {
+      const batch = episodesData.slice(i, i + batchSize);
+      const episodesToInsert = batch.map(ep => ({
+        ...ep,
+        podcast_id: podcast.id
+      }));
+
+      const { data, error } = await supabase
+        .from('podcast_episodes')
+        .insert(episodesToInsert)
+        .select();
+
+      if (error) {
+        console.error(`Failed to insert episode batch ${i}-${i + batchSize}:`, error);
+        continue; // Continue with next batch
+      }
+
+      if (data) {
+        episodes.push(...data);
+      }
+    }
+
+    return { podcast, episodes };
+  },
+
   async getPodcast(id: string): Promise<Podcast | undefined> {
     const { data, error } = await supabase
       .from('podcasts')

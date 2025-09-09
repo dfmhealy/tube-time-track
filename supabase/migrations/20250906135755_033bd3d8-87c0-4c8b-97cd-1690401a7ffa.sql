@@ -1,5 +1,5 @@
 -- Create podcasts table
-CREATE TABLE public.podcasts (
+CREATE TABLE IF NOT EXISTS public.podcasts (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   title TEXT NOT NULL,
   description TEXT,
@@ -15,7 +15,7 @@ CREATE TABLE public.podcasts (
 );
 
 -- Create podcast episodes table
-CREATE TABLE public.podcast_episodes (
+CREATE TABLE IF NOT EXISTS public.podcast_episodes (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   podcast_id UUID NOT NULL REFERENCES public.podcasts(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE public.podcast_episodes (
 );
 
 -- Create podcast subscriptions table
-CREATE TABLE public.podcast_subscriptions (
+CREATE TABLE IF NOT EXISTS public.podcast_subscriptions (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL,
   podcast_id UUID NOT NULL REFERENCES public.podcasts(id) ON DELETE CASCADE,
@@ -40,7 +40,7 @@ CREATE TABLE public.podcast_subscriptions (
 );
 
 -- Create podcast listen sessions table (similar to watch_sessions but for audio)
-CREATE TABLE public.podcast_sessions (
+CREATE TABLE IF NOT EXISTS public.podcast_sessions (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL,
   episode_id UUID NOT NULL REFERENCES public.podcast_episodes(id) ON DELETE CASCADE,
@@ -59,38 +59,102 @@ ALTER TABLE public.podcast_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.podcast_sessions ENABLE ROW LEVEL SECURITY;
 
 -- RLS policies for podcasts (publicly readable)
-CREATE POLICY "Anyone can read podcasts" 
-ON public.podcasts FOR SELECT USING (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'podcasts' AND policyname = 'Anyone can read podcasts'
+  ) THEN
+    CREATE POLICY "Anyone can read podcasts" 
+    ON public.podcasts FOR SELECT USING (true);
+  END IF;
+END $$;
 
 -- RLS policies for podcast episodes (publicly readable)
-CREATE POLICY "Anyone can read podcast episodes" 
-ON public.podcast_episodes FOR SELECT USING (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'podcast_episodes' AND policyname = 'Anyone can read podcast episodes'
+  ) THEN
+    CREATE POLICY "Anyone can read podcast episodes" 
+    ON public.podcast_episodes FOR SELECT USING (true);
+  END IF;
+END $$;
 
 -- RLS policies for podcast subscriptions
-CREATE POLICY "Users can view own subscriptions" 
-ON public.podcast_subscriptions FOR SELECT 
-USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'podcast_subscriptions' AND policyname = 'Users can view own subscriptions'
+  ) THEN
+    CREATE POLICY "Users can view own subscriptions" 
+    ON public.podcast_subscriptions FOR SELECT 
+    USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can create own subscriptions" 
-ON public.podcast_subscriptions FOR INSERT 
-WITH CHECK (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'podcast_subscriptions' AND policyname = 'Users can create own subscriptions'
+  ) THEN
+    CREATE POLICY "Users can create own subscriptions" 
+    ON public.podcast_subscriptions FOR INSERT 
+    WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can delete own subscriptions" 
-ON public.podcast_subscriptions FOR DELETE 
-USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'podcast_subscriptions' AND policyname = 'Users can delete own subscriptions'
+  ) THEN
+    CREATE POLICY "Users can delete own subscriptions" 
+    ON public.podcast_subscriptions FOR DELETE 
+    USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- RLS policies for podcast sessions
-CREATE POLICY "Users can view own podcast sessions" 
-ON public.podcast_sessions FOR SELECT 
-USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'podcast_sessions' AND policyname = 'Users can view own podcast sessions'
+  ) THEN
+    CREATE POLICY "Users can view own podcast sessions" 
+    ON public.podcast_sessions FOR SELECT 
+    USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can create own podcast sessions" 
-ON public.podcast_sessions FOR INSERT 
-WITH CHECK (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'podcast_sessions' AND policyname = 'Users can create own podcast sessions'
+  ) THEN
+    CREATE POLICY "Users can create own podcast sessions" 
+    ON public.podcast_sessions FOR INSERT 
+    WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can update own podcast sessions" 
-ON public.podcast_sessions FOR UPDATE 
-USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'podcast_sessions' AND policyname = 'Users can update own podcast sessions'
+  ) THEN
+    CREATE POLICY "Users can update own podcast sessions" 
+    ON public.podcast_sessions FOR UPDATE 
+    USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- Create function to update podcast statistics
 CREATE OR REPLACE FUNCTION public.update_podcast_stats()
@@ -119,14 +183,21 @@ END;
 $$;
 
 -- Create trigger for podcast session updates
-CREATE TRIGGER update_podcast_stats_trigger
-  AFTER UPDATE ON public.podcast_sessions
-  FOR EACH ROW
-  WHEN (OLD.ended_at IS NULL AND NEW.ended_at IS NOT NULL)
-  EXECUTE FUNCTION public.update_podcast_stats();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'update_podcast_stats_trigger'
+  ) THEN
+    CREATE TRIGGER update_podcast_stats_trigger
+      AFTER UPDATE ON public.podcast_sessions
+      FOR EACH ROW
+      WHEN (OLD.ended_at IS NULL AND NEW.ended_at IS NOT NULL)
+      EXECUTE FUNCTION public.update_podcast_stats();
+  END IF;
+END $$;
 
 -- Create indexes for better performance
-CREATE INDEX idx_podcast_episodes_podcast_id ON public.podcast_episodes(podcast_id);
-CREATE INDEX idx_podcast_subscriptions_user_id ON public.podcast_subscriptions(user_id);
-CREATE INDEX idx_podcast_sessions_user_id ON public.podcast_sessions(user_id);
-CREATE INDEX idx_podcast_sessions_episode_id ON public.podcast_sessions(episode_id);
+CREATE INDEX IF NOT EXISTS idx_podcast_episodes_podcast_id ON public.podcast_episodes(podcast_id);
+CREATE INDEX IF NOT EXISTS idx_podcast_subscriptions_user_id ON public.podcast_subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_podcast_sessions_user_id ON public.podcast_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_podcast_sessions_episode_id ON public.podcast_sessions(episode_id);

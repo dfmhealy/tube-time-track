@@ -16,15 +16,39 @@ CREATE TABLE IF NOT EXISTS public.user_preferences (
 ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
 
 -- User preferences policies
-CREATE POLICY "Users can read own preferences" ON public.user_preferences
-  FOR SELECT USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies 
+    WHERE tablename = 'user_preferences' AND policyname = 'Users can read own preferences'
+  ) THEN
+    CREATE POLICY "Users can read own preferences" ON public.user_preferences
+      FOR SELECT USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can insert own preferences" ON public.user_preferences
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies 
+    WHERE tablename = 'user_preferences' AND policyname = 'Users can insert own preferences'
+  ) THEN
+    CREATE POLICY "Users can insert own preferences" ON public.user_preferences
+      FOR INSERT WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users can update own preferences" ON public.user_preferences
-  FOR UPDATE USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies 
+    WHERE tablename = 'user_preferences' AND policyname = 'Users can update own preferences'
+  ) THEN
+    CREATE POLICY "Users can update own preferences" ON public.user_preferences
+      FOR UPDATE USING (auth.uid() = user_id)
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- Update existing handle_new_user function to include preferences
 CREATE OR REPLACE FUNCTION public.handle_new_user()

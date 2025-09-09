@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn, formatDuration } from '@/lib/utils';
 import { PodcastDatabaseService, type Podcast, type PodcastEpisode, type PodcastSubscription } from '@/lib/podcastDatabase';
+import { podcastApiService, type PodcastSearchResult } from '@/lib/podcastApi';
 import { PodcastPlayer } from '@/components/PodcastPlayer';
 import { useToast } from '@/hooks/use-toast';
 
@@ -25,8 +26,12 @@ export function Podcasts() {
   const [selectedPodcast, setSelectedPodcast] = useState<Podcast | null>(null);
   const [currentEpisode, setCurrentEpisode] = useState<PodcastEpisode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [externalSearchQuery, setExternalSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<PodcastSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [episodesLoading, setEpisodesLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [importingPodcast, setImportingPodcast] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Load initial data
@@ -123,6 +128,85 @@ export function Podcasts() {
     }
   };
 
+  const handleExternalSearch = async () => {
+    if (!externalSearchQuery.trim()) return;
+    
+    setSearchLoading(true);
+    try {
+      const results = await podcastApiService.searchPodcasts(externalSearchQuery, 20);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Search failed:', error);
+      toast({
+        title: "Search Error",
+        description: "Failed to search for podcasts. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleImportPodcast = async (searchResult: PodcastSearchResult) => {
+    setImportingPodcast(searchResult.id);
+    try {
+      // Import podcast with episodes
+      const { podcast: importedPodcast, episodes: importedEpisodes } = await podcastApiService.importPodcast(searchResult);
+      
+      // Save to database
+      const { podcast, episodes } = await PodcastDatabaseService.importPodcastWithEpisodes(
+        {
+          title: importedPodcast.title,
+          description: importedPodcast.description || '',
+          creator: importedPodcast.creator,
+          thumbnail_url: importedPodcast.thumbnail_url,
+          rss_url: importedPodcast.rss_url || '',
+          website_url: importedPodcast.website_url || '',
+          language: importedPodcast.language,
+          category: importedPodcast.category || '',
+          total_episodes: importedEpisodes.length
+        },
+        importedEpisodes.map(ep => ({
+          title: ep.title,
+          description: ep.description || '',
+          audio_url: ep.audio_url,
+          duration_seconds: ep.duration_seconds,
+          episode_number: ep.episode_number,
+          season_number: ep.season_number,
+          publish_date: ep.publish_date,
+          thumbnail_url: ep.thumbnail_url
+        }))
+      );
+
+      // Refresh local data
+      const [updatedPodcasts, updatedSubscriptions] = await Promise.all([
+        PodcastDatabaseService.getAllPodcasts(),
+        PodcastDatabaseService.getUserSubscriptions()
+      ]);
+      
+      setPodcasts(updatedPodcasts);
+      setSubscriptions(updatedSubscriptions);
+      
+      toast({
+        title: "Podcast Added!",
+        description: `${podcast.title} has been added to your library with ${episodes.length} episodes.`,
+      });
+      
+      // Clear search results
+      setSearchResults([]);
+      setExternalSearchQuery('');
+    } catch (error) {
+      console.error('Failed to import podcast:', error);
+      toast({
+        title: "Import Error",
+        description: error instanceof Error ? error.message : "Failed to import podcast",
+        variant: "destructive"
+      });
+    } finally {
+      setImportingPodcast(null);
+    }
+  };
+
   const isSubscribed = (podcastId: string) => {
     return subscriptions.some(sub => sub.podcast_id === podcastId);
   };
@@ -156,19 +240,20 @@ export function Podcasts() {
           </div>
 
           <Tabs defaultValue="discover" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-2 max-w-md mx-auto">
-              <TabsTrigger value="discover">Discover</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-3 max-w-lg mx-auto">
+              <TabsTrigger value="discover">My Library</TabsTrigger>
+              <TabsTrigger value="search">Search & Add</TabsTrigger>
               <TabsTrigger value="subscriptions">
-                My Subscriptions ({subscriptions.length})
+                Subscriptions ({subscriptions.length})
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="discover" className="space-y-6">
-              {/* Search */}
+              {/* Local Search */}
               <div className="relative max-w-md mx-auto">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <Input
-                  placeholder="Search podcasts..."
+                  placeholder="Search your library..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/60"
@@ -237,6 +322,119 @@ export function Podcasts() {
                 <div className="text-center py-12">
                   <HeadphonesIcon className="w-12 h-12 text-white/50 mx-auto mb-4" />
                   <p className="text-white/70">No podcasts found</p>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="search" className="space-y-6">
+              {/* External Search */}
+              <div className="max-w-2xl mx-auto space-y-4">
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                    <Input
+                      placeholder="Search for new podcasts to add..."
+                      value={externalSearchQuery}
+                      onChange={(e) => setExternalSearchQuery(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleExternalSearch()}
+                      className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/60"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleExternalSearch}
+                    disabled={searchLoading || !externalSearchQuery.trim()}
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    {searchLoading ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Search className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+                
+                {searchResults.length > 0 && (
+                  <p className="text-white/70 text-sm text-center">
+                    Found {searchResults.length} podcasts
+                  </p>
+                )}
+              </div>
+
+              {/* Search Results */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {searchResults.map((result) => {
+                  const isImporting = importingPodcast === result.id;
+                  const isAlreadyAdded = podcasts.some(p => p.rss_url === result.rss_url);
+                  
+                  return (
+                    <Card key={result.id} className="bg-white/10 backdrop-blur border-white/20 hover:bg-white/15 transition-colors">
+                      <CardContent className="p-6">
+                        <div className="flex items-start gap-4">
+                          <img
+                            src={result.thumbnail_url}
+                            alt={result.title}
+                            className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-white font-semibold mb-1 line-clamp-2">
+                              {result.title}
+                            </h3>
+                            <p className="text-white/70 text-sm mb-2">{result.creator}</p>
+                            <div className="flex items-center gap-2 text-xs text-white/60 mb-3">
+                              <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
+                                {result.total_episodes} episodes
+                              </Badge>
+                              {result.category && (
+                                <span>{result.category}</span>
+                              )}
+                              <Badge variant="outline" className="bg-blue-600/20 text-blue-200 border-blue-400/30">
+                                {result.source}
+                              </Badge>
+                            </div>
+                            <Button
+                              size="sm"
+                              onClick={() => handleImportPodcast(result)}
+                              disabled={isImporting || isAlreadyAdded}
+                              className={isAlreadyAdded ? 
+                                "bg-gray-600/80 text-white cursor-not-allowed" :
+                                "bg-primary hover:bg-primary/90"
+                              }
+                            >
+                              {isImporting ? (
+                                <>
+                                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
+                                  Adding...
+                                </>
+                              ) : isAlreadyAdded ? (
+                                <>Already Added</>
+                              ) : (
+                                <>
+                                  <Plus className="w-3 h-3 mr-1" />
+                                  Add to Library
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {searchResults.length === 0 && externalSearchQuery && !searchLoading && (
+                <div className="text-center py-12">
+                  <HeadphonesIcon className="w-12 h-12 text-white/50 mx-auto mb-4" />
+                  <p className="text-white/70">No podcasts found for "{externalSearchQuery}"</p>
+                  <p className="text-white/50 text-sm mt-2">Try different search terms</p>
+                </div>
+              )}
+
+              {!externalSearchQuery && searchResults.length === 0 && (
+                <div className="text-center py-12">
+                  <Search className="w-12 h-12 text-white/50 mx-auto mb-4" />
+                  <p className="text-white/70 mb-2">Search for podcasts to add to your library</p>
+                  <p className="text-white/50 text-sm">Enter a podcast name, creator, or topic above</p>
                 </div>
               )}
             </TabsContent>
