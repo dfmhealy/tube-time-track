@@ -6,21 +6,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from 'sonner';
 
 export default function Settings() {
-  const { weeklyGoal, setWeeklyGoal } = useAppStore();
-  const [localDailyGoal, setLocalDailyGoal] = useState(String(weeklyGoal / 3600)); // Convert to string for input
+  const { dailyGoal, setDailyGoal } = useAppStore();
+  const [localDailyGoal, setLocalDailyGoal] = useState(String(dailyGoal / 60)); // Convert to minutes for input
 
   const handleSave = () => {
-    const hours = parseFloat(localDailyGoal);
-    if (isNaN(hours) || hours <= 0) {
-      toast.error('Please enter a valid number of hours');
+    const minutes = parseFloat(localDailyGoal);
+    if (isNaN(minutes) || minutes <= 0) {
+      toast.error('Please enter a valid number of minutes');
       return;
     }
-    setWeeklyGoal(Math.round(hours * 3600)); // Convert hours to seconds
+    setDailyGoal(Math.round(minutes * 60)); // Convert minutes to seconds
     toast.success('Daily goal updated successfully');
   };
 
-  // Convert seconds to hours for display
-  const dailyGoalInHours = (weeklyGoal / 3600).toFixed(1);
+  // Convert seconds to minutes for display
+  const dailyGoalInMinutes = Math.round(dailyGoal / 60);
 
   return (
     <div className="container mx-auto p-4 max-w-2xl">
@@ -40,17 +40,17 @@ export default function Settings() {
                 <div className="flex-1">
                   <Input
                     type="number"
-                    min="0.1"
-                    step="0.1"
+                    min="1"
+                    step="1"
                     value={localDailyGoal}
                     onChange={(e) => setLocalDailyGoal(e.target.value)}
                     className="w-32"
                   />
                 </div>
-                <span>hours per day</span>
+                <span>minutes per day</span>
               </div>
               <p className="text-sm text-muted-foreground">
-                Current goal: <span className="font-medium">{dailyGoalInHours} hours per day</span>
+                Current goal: <span className="font-medium">{dailyGoalInMinutes} minutes per day</span>
               </p>
             </div>
             

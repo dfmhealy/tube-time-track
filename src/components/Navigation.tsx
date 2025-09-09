@@ -1,6 +1,7 @@
 import { Home, Library, BarChart3, Settings, Play, Headphones } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { Button } from '@/components/ui/button';
+import { SignOutButton } from '@/components/SignOutButton';
 import { cn } from '@/lib/utils';
 
 interface NavigationProps {
@@ -59,6 +60,7 @@ export function Navigation({ mobile = false }: NavigationProps) {
           <span>{label}</span>
         </Button>
       ))}
+      <SignOutButton />
     </nav>
   );
 }

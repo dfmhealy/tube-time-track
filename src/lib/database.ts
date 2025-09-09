@@ -12,6 +12,8 @@ export interface Video {
   addedAt: string; // ISO string
   watchSeconds: number;
   lastWatchedAt: string | null;
+  lastPositionSeconds?: number;
+  isCompleted?: boolean;
 }
 
 export interface WatchSession {
@@ -27,7 +29,7 @@ export interface WatchSession {
 export interface UserStats {
   id: string;
   totalSeconds: number;
-  weeklyGoalSeconds: number;
+  dailyGoalSeconds: number;
   lastWatchedAt: string | null;
   streakDays: number;
 }
@@ -100,7 +102,9 @@ export const DatabaseService = {
       tags: data.tags,
       addedAt: data.added_at,
       watchSeconds: data.watch_seconds,
-      lastWatchedAt: data.last_watched_at
+      lastWatchedAt: data.last_watched_at,
+      lastPositionSeconds: (data as any).last_position_seconds || 0,
+      isCompleted: (data as any).is_completed || false
     };
   },
 
@@ -127,7 +131,9 @@ export const DatabaseService = {
       tags: data.tags,
       addedAt: data.added_at,
       watchSeconds: data.watch_seconds,
-      lastWatchedAt: data.last_watched_at
+      lastWatchedAt: data.last_watched_at,
+      lastPositionSeconds: (data as any).last_position_seconds || 0,
+      isCompleted: (data as any).is_completed || false
     };
   },
 
@@ -153,7 +159,9 @@ export const DatabaseService = {
       tags: video.tags,
       addedAt: video.added_at,
       watchSeconds: video.watch_seconds,
-      lastWatchedAt: video.last_watched_at
+      lastWatchedAt: video.last_watched_at,
+      lastPositionSeconds: (video as any).last_position_seconds || 0,
+      isCompleted: (video as any).is_completed || false
     }));
   },
 
@@ -179,7 +187,9 @@ export const DatabaseService = {
       tags: video.tags,
       addedAt: video.added_at,
       watchSeconds: video.watch_seconds,
-      lastWatchedAt: video.last_watched_at
+      lastWatchedAt: video.last_watched_at,
+      lastPositionSeconds: (video as any).last_position_seconds || 0,
+      isCompleted: (video as any).is_completed || false
     }));
   },
 
@@ -290,7 +300,7 @@ export const DatabaseService = {
     return {
       id: data.id,
       totalSeconds: data.total_seconds,
-      weeklyGoalSeconds: data.weekly_goal_seconds,
+      dailyGoalSeconds: data.weekly_goal_seconds || 30 * 60, // Default 30 minutes (using existing column)
       lastWatchedAt: data.last_watched_at,
       streakDays: data.streak_days
     };
@@ -302,7 +312,7 @@ export const DatabaseService = {
 
     const updateData: any = {};
     if (updates.totalSeconds !== undefined) updateData.total_seconds = updates.totalSeconds;
-    if (updates.weeklyGoalSeconds !== undefined) updateData.weekly_goal_seconds = updates.weeklyGoalSeconds;
+    if (updates.dailyGoalSeconds !== undefined) updateData.weekly_goal_seconds = updates.dailyGoalSeconds;
     if (updates.lastWatchedAt !== undefined) updateData.last_watched_at = updates.lastWatchedAt;
     if (updates.streakDays !== undefined) updateData.streak_days = updates.streakDays;
 

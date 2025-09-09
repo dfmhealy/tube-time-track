@@ -17,7 +17,7 @@ interface AppState {
   selectedTags: string[];
   
   // User preferences
-  weeklyGoal: number; // seconds
+  dailyGoal: number; // seconds
   timeZone: string;
   
   // Actions
@@ -28,7 +28,7 @@ interface AppState {
   setActiveWatchSession: (session: WatchSession | null) => void;
   setSearchQuery: (query: string) => void;
   setSelectedTags: (tags: string[]) => void;
-  setWeeklyGoal: (seconds: number) => void;
+  setDailyGoal: (seconds: number) => void;
   clearError: () => void;
 }
 
@@ -43,7 +43,7 @@ export const useAppStore = create<AppState>()(
       activeWatchSession: null,
       searchQuery: '',
       selectedTags: [],
-      weeklyGoal: 5 * 60 * 60, // 5 hours default
+      dailyGoal: 30 * 60, // 30 minutes default
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 
       // Actions
@@ -54,14 +54,14 @@ export const useAppStore = create<AppState>()(
       setActiveWatchSession: (session) => set({ activeWatchSession: session }),
       setSearchQuery: (query) => set({ searchQuery: query }),
       setSelectedTags: (tags) => set({ selectedTags: tags }),
-      setWeeklyGoal: (seconds) => set({ weeklyGoal: seconds }),
+      setDailyGoal: (seconds) => set({ dailyGoal: seconds }),
       clearError: () => set({ error: null })
     }),
     {
       name: 'youtube-tracker-store',
       // Only persist user preferences, not temporary state
       partialize: (state) => ({
-        weeklyGoal: state.weeklyGoal,
+        dailyGoal: state.dailyGoal,
         timeZone: state.timeZone
       })
     }

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { 
   Play, 
   Pause, 
@@ -11,11 +12,15 @@ import {
   Volume2, 
   VolumeX,
   Clock,
-  HeadphonesIcon
+  HeadphonesIcon,
+  Target
 } from 'lucide-react';
-import { cn, formatDuration } from '@/lib/utils';
+import { cn, formatDuration, formatTimeHMS } from '@/lib/utils';
 import { PodcastDatabaseService, type PodcastEpisode, type PodcastSession } from '@/lib/podcastDatabase';
 import { useToast } from '@/hooks/use-toast';
+import { useAppStore, useStatsStore } from '@/store/appStore';
+import { DatabaseService } from '@/lib/database';
+import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 
 interface PodcastPlayerProps {
   episode: PodcastEpisode;
@@ -35,7 +40,33 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
   const [session, setSession] = useState<PodcastSession | null>(null);
   const [totalListenTime, setTotalListenTime] = useState(0);
   
+  // Daily goal tracking
+  const { dailyGoal } = useAppStore();
+  const { updateTotalSeconds } = useStatsStore();
+  const [dailyListenTime, setDailyListenTime] = useState(0);
+  const [sessionListenTime, setSessionListenTime] = useState(0);
+  
   const { toast } = useToast();
+
+  // Get daily goal (use dailyGoal in seconds)
+  const dailyGoalSeconds = dailyGoal || 30 * 60; // Default to 30 minutes if not set
+
+  // Load daily listen time using unified tracker
+  useEffect(() => {
+    const loadDailyTime = async () => {
+      const totalTime = await dailyTimeTracker.loadDailyTime();
+      setDailyListenTime(totalTime);
+    };
+
+    loadDailyTime();
+
+    // Subscribe to real-time updates
+    const unsubscribe = dailyTimeTracker.subscribe((newTime) => {
+      setDailyListenTime(newTime);
+    });
+
+    return unsubscribe;
+  }, []);
 
   // Initialize session and previous listen time
   useEffect(() => {
@@ -59,12 +90,15 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
     initializeSession();
 
     return () => {
-      if (session) {
+      if (session && sessionListenTime > 0) {
         PodcastDatabaseService.endListenSession(session.id, currentTime)
+          .then(() => {
+            updateTotalSeconds(sessionListenTime);
+          })
           .catch(console.error);
       }
     };
-  }, [episode.id]);
+  }, [episode.id, sessionListenTime, updateTotalSeconds]);
 
   // Audio event handlers
   const handleLoadedMetadata = useCallback(() => {
@@ -72,13 +106,13 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
       setDuration(audioRef.current.duration);
       setLoading(false);
       
-      // Resume from previous listen position if available
-      if (totalListenTime > 0 && totalListenTime < audioRef.current.duration - 30) {
-        audioRef.current.currentTime = totalListenTime;
-        setCurrentTime(totalListenTime);
+      // Resume from previous listen position if available (only if listened for more than 30 seconds)
+      if (episode.last_position_seconds && episode.last_position_seconds > 30 && episode.last_position_seconds < audioRef.current.duration - 30) {
+        audioRef.current.currentTime = episode.last_position_seconds;
+        setCurrentTime(episode.last_position_seconds);
       }
     }
-  }, [totalListenTime]);
+  }, [episode.last_position_seconds]);
 
   const handleTimeUpdate = useCallback(() => {
     if (audioRef.current && !audioRef.current.seeking) {
@@ -101,11 +135,20 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
     }
   }, [session, duration]);
 
-  // Progress tracking
+  // Progress tracking with session listen time
   useEffect(() => {
     if (isPlaying && session) {
+      const startTime = Date.now();
+      let lastUpdate = startTime;
+      
       progressIntervalRef.current = setInterval(async () => {
         if (audioRef.current) {
+          const now = Date.now();
+          const deltaSeconds = (now - lastUpdate) / 1000;
+          
+          setSessionListenTime(prev => prev + deltaSeconds);
+          dailyTimeTracker.addTime(deltaSeconds);
+          
           const currentSeconds = Math.floor(audioRef.current.currentTime);
           try {
             await PodcastDatabaseService.updateListenSession(session.id, {
@@ -115,8 +158,10 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
           } catch (error) {
             console.error('Failed to update session:', error);
           }
+          
+          lastUpdate = now;
         }
-      }, 5000);
+      }, 1000);
     }
 
     return () => {
@@ -188,11 +233,29 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
 
   const completionPercentage = duration > 0 ? Math.min((totalListenTime / duration) * 100, 100) : 0;
   const remainingTime = Math.max(duration - totalListenTime, 0);
+  const dailyProgressPercent = Math.min((dailyListenTime / dailyGoalSeconds) * 100, 100);
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl bg-background/95 backdrop-blur">
         <CardContent className="p-6">
+          {/* Daily Goal Progress */}
+          <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium">Daily Goal Progress</span>
+              </div>
+              <span className="text-sm text-muted-foreground">
+                {formatTimeHMS(dailyListenTime)} / {formatTimeHMS(dailyGoalSeconds)}
+              </span>
+            </div>
+            <Progress value={dailyProgressPercent} className="h-2" />
+            <p className="text-xs text-muted-foreground mt-1">
+              {dailyProgressPercent >= 100 ? '🎉 Goal achieved!' : `${Math.round(dailyProgressPercent)}% complete`}
+            </p>
+          </div>
+
           {/* Episode Info */}
           <div className="flex items-start gap-4 mb-6">
             <div className="relative">

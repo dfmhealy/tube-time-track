@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
+import { ArrowLeft, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Target } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore, useLibraryStore, useStatsStore } from '@/store/appStore';
 import { DatabaseService } from '@/lib/database';
+import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 import type { Video, WatchSession } from '@/lib/database';
-import { formatDuration, cn } from '@/lib/utils';
+import { formatDuration, formatTimeHMS, cn } from '@/lib/utils';
 import { YouTubePlayer, PlayerState } from '@/lib/youtube';
 
 export function PlayerView() {
@@ -40,7 +41,7 @@ export function PlayerView() {
 
 function PlayerViewContent() {
   const navigate = useNavigate();
-  const { currentVideo, setCurrentView, activeWatchSession, setActiveWatchSession } = useAppStore();
+  const { currentVideo, setCurrentView, activeWatchSession, setActiveWatchSession, dailyGoal } = useAppStore();
   const { updateTotalSeconds } = useStatsStore();
   const { updateVideo } = useLibraryStore();
 
@@ -55,6 +56,7 @@ function PlayerViewContent() {
   
   const [lastSavedTime, setLastSavedTime] = useState(0);
   const [totalWatchedSeconds, setTotalWatchedSeconds] = useState(0);
+  const [dailyWatchTime, setDailyWatchTime] = useState(0);
   
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -62,10 +64,30 @@ function PlayerViewContent() {
   const focusRef = useRef(document.hasFocus());
   const lastTickRef = useRef<number | null>(null);
 
+  // Get daily goal (use dailyGoal in seconds)
+  const dailyGoalSeconds = dailyGoal || 30 * 60; // Default to 30 minutes if not set
+
   const stateRef = useRef({ totalWatchedSeconds, lastSavedTime, activeWatchSession, playbackRate });
   useEffect(() => {
     stateRef.current = { totalWatchedSeconds, lastSavedTime, activeWatchSession, playbackRate };
   }, [totalWatchedSeconds, lastSavedTime, activeWatchSession, playbackRate]);
+
+  // Load daily watch time using unified tracker
+  useEffect(() => {
+    const loadDailyTime = async () => {
+      const totalTime = await dailyTimeTracker.loadDailyTime();
+      setDailyWatchTime(totalTime);
+    };
+
+    loadDailyTime();
+
+    // Subscribe to real-time updates
+    const unsubscribe = dailyTimeTracker.subscribe((newTime) => {
+      setDailyWatchTime(newTime);
+    });
+
+    return unsubscribe;
+  }, []);
 
   if (!currentVideo) {
     return (
@@ -102,7 +124,9 @@ function PlayerViewContent() {
         if (video) {
           updateVideo(currentVideo.id, {
             watchSeconds: (video.watchSeconds || 0) + finalSeconds,
-            lastWatchedAt: new Date().toISOString()
+            lastWatchedAt: new Date().toISOString(),
+            lastPositionSeconds: Math.floor(currentTime),
+            isCompleted: currentTime >= (duration * 0.9)
           });
         }
         updateTotalSeconds(finalSeconds);
@@ -112,7 +136,7 @@ function PlayerViewContent() {
       setTotalWatchedSeconds(0);
       setLastSavedTime(0);
     }
-  }, [currentVideo, updateVideo, updateTotalSeconds, setActiveWatchSession]);
+  }, [currentVideo, updateVideo, updateTotalSeconds, setActiveWatchSession, currentTime, duration]);
 
   const handleBack = useCallback(async () => {
     try {
@@ -170,9 +194,38 @@ function PlayerViewContent() {
             setIsPlayerReady(true);
             setDuration(event.target.getDuration());
             setPlaybackRate(event.target.getPlaybackRate());
+            
+            // Resume from last position if available
+            if (currentVideo.lastPositionSeconds && currentVideo.lastPositionSeconds > 30) {
+              event.target.seekTo(currentVideo.lastPositionSeconds, true);
+              setCurrentTime(currentVideo.lastPositionSeconds);
+            }
+            
             event.target.playVideo();
           },
-          onStateChange: (event: any) => { if (mounted) handlePlayerStateChange(event.data); },
+          onStateChange: (event: any) => { 
+            if (!mounted) return;
+            const state = event.data;
+            const { activeWatchSession: session, totalWatchedSeconds: watched, lastSavedTime: saved, playbackRate: rate } = stateRef.current;
+            switch (state) {
+              case PlayerState.PLAYING: setIsPlaying(true); break;
+              case PlayerState.PAUSED:
+              case PlayerState.BUFFERING:
+                setIsPlaying(false);
+                if (session && watched > saved) {
+                  const flooredSeconds = Math.floor(watched);
+                  updateWatchHistory(session, flooredSeconds, rate).then(() => {
+                    setLastSavedTime(flooredSeconds);
+                  }).catch(console.error);
+                }
+                break;
+              case PlayerState.ENDED:
+                setIsPlaying(false);
+                if (session) endWatchSession().catch(console.error);
+                break;
+              default: break;
+            }
+          },
           onError: (event: { data: number }) => {
              console.error(`Youtubeer Error (Code: ${event.data})`);
              toast.error('Video player error occurred.');
@@ -191,12 +244,12 @@ function PlayerViewContent() {
     }
     return () => {
       mounted = false;
-      if (stateRef.current.activeWatchSession) {
-        endWatchSession().catch(error => console.error('Error during cleanup:', error));
+      if (ytPlayer) {
+        ytPlayer.destroy();
+        ytPlayer = null;
       }
-      ytPlayer?.destroy();
     };
-  }, [currentVideo.youtubeId, endWatchSession, handlePlayerStateChange]);
+  }, [currentVideo?.id]);
 
   const startWatchSession = useCallback(async () => {
     if (!currentVideo || activeWatchSession) return;
@@ -228,6 +281,7 @@ function PlayerViewContent() {
         let deltaSec = (now - lastTick) / 1000;
         if (deltaSec > 2) deltaSec = 1;
         setTotalWatchedSeconds(prev => prev + deltaSec);
+        dailyTimeTracker.addTime(deltaSec);
         lastTickRef.current = now;
       } else {
         lastTickRef.current = null;
@@ -304,72 +358,17 @@ function PlayerViewContent() {
     showControlsTemporarily();
   }, [player, showControlsTemporarily]);
 
-  // Get the daily goal from the app store
-  const { weeklyGoal } = useAppStore();
-  // Use weeklyGoal as the daily goal (in seconds)
-  const dailyGoalSeconds = weeklyGoal || 5 * 3600; // Default to 5 hours if not set
-
-  // Track daily watch time
-  const [dailyWatchTime, setDailyWatchTime] = useState(0);
-  const [lastUpdated, setLastUpdated] = useState(0);
-
-  // Update watch time
-  useEffect(() => {
-    const updateWatchTime = async () => {
-      try {
-        // Get today's date in local timezone
-        const now = new Date();
-        const today = now.toISOString().split('T')[0];
-        
-        // Get all watch sessions
-        const sessions = await DatabaseService.getAllWatchSessions();
-        
-        // Calculate total watch time for today
-        const todaySessions = sessions.filter(session => 
-          session.endedAt && session.endedAt.startsWith(today)
-        );
-        
-        let todayWatchTime = todaySessions.reduce(
-          (total, session) => total + (session.secondsWatched || 0), 0
-        );
-        
-        // Add current session time if active
-        if (activeWatchSession) {
-          const currentSessionTime = Math.floor((Date.now() - new Date(activeWatchSession.startedAt).getTime()) / 1000);
-          todayWatchTime += currentSessionTime;
-        }
-        
-        setDailyWatchTime(todayWatchTime);
-        setLastUpdated(Date.now());
-      } catch (error) {
-        console.error('Error updating watch time:', error);
-      }
-    };
-
-    updateWatchTime();
-    
-    // Refresh more frequently if there's an active session
-    const interval = setInterval(updateWatchTime, activeWatchSession ? 10000 : 60000);
-    return () => clearInterval(interval);
-  }, [activeWatchSession, lastUpdated]);
-
-  // Calculate progress percentage
+  // Calculate progress percentage for video progress bar
   const progressPercentage = useMemo(() => {
-    return dailyGoalSeconds > 0 ? Math.min(100, (dailyWatchTime / dailyGoalSeconds) * 100) : 0;
-  }, [dailyWatchTime, dailyGoalSeconds]);
+    return duration > 0 ? (currentTime / duration) * 100 : 0;
+  }, [currentTime, duration]);
   
-  const formatTime = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return hours > 0 
-      ? `${hours}h ${minutes}m` 
-      : `${minutes}m`;
-  };
-  
+  const dailyProgressPercent = Math.min((dailyWatchTime / dailyGoalSeconds) * 100, 100);
+
   return (
     <div className="h-screen bg-background flex flex-col">
       <div className="bg-background border-b p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-4 min-w-0">
             <Button variant="ghost" size="sm" onClick={handleBack}>
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -380,10 +379,23 @@ function PlayerViewContent() {
               <p className="text-sm text-muted-foreground truncate">{currentVideo.channelTitle}</p>
             </div>
           </div>
-          <div className="flex items-center space-x-4 text-sm text-muted-foreground flex-shrink-0">
-            <span>{formatTime(dailyWatchTime)} / {formatTime(dailyGoalSeconds)}</span>
-            <Badge variant="secondary">{Math.round(progressPercentage)}% of daily goal</Badge>
+        </div>
+        
+        {/* Daily Goal Progress */}
+        <div className="p-3 bg-muted/50 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium">Daily Goal Progress</span>
+            </div>
+            <span className="text-sm text-muted-foreground">
+              {formatTimeHMS(dailyWatchTime)} / {formatTimeHMS(dailyGoalSeconds)}
+            </span>
           </div>
+          <Progress value={dailyProgressPercent} className="h-2" />
+          <p className="text-xs text-muted-foreground mt-1">
+            {dailyProgressPercent >= 100 ? '🎉 Goal achieved!' : `${Math.round(dailyProgressPercent)}% complete`}
+          </p>
         </div>
       </div>
       

@@ -7,6 +7,8 @@ import { VideoCard } from '@/components/VideoCard';
 import { useLibraryStore, useAppStore } from '@/store/appStore';
 import { DatabaseService } from '@/lib/database';
 import { Search, Filter, SortAsc, SortDesc, Grid, List } from 'lucide-react';
+import { toast } from 'sonner';
+import type { Video } from '@/lib/database';
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -15,7 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function Library() {
-  const { searchQuery, setSearchQuery } = useAppStore();
+  const { searchQuery, setSearchQuery, setCurrentVideo, setCurrentView } = useAppStore();
   const { 
     videos, 
     setVideos, 
@@ -24,7 +26,8 @@ export function Library() {
     sortBy,
     sortOrder,
     setSortBy,
-    setSortOrder
+    setSortOrder,
+    removeVideo
   } = useLibraryStore();
   
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -104,6 +107,22 @@ export function Library() {
         ? prev.filter(t => t !== tag)
         : [...prev, tag]
     );
+  };
+
+  const handlePlayVideo = (video: Video) => {
+    setCurrentVideo(video);
+    setCurrentView('player');
+  };
+
+  const handleDeleteVideo = async (videoId: string) => {
+    try {
+      await DatabaseService.deleteVideo(videoId);
+      removeVideo(videoId);
+      toast.success('Video removed from library');
+    } catch (error) {
+      console.error('Error deleting video:', error);
+      toast.error('Failed to remove video');
+    }
   };
 
   if (isLibraryLoading) {
@@ -283,6 +302,8 @@ export function Library() {
             <VideoCard 
               key={video.id} 
               video={video}
+              onPlay={handlePlayVideo}
+              onDelete={handleDeleteVideo}
               className={viewMode === 'list' ? 'flex-row' : ''}
             />
           ))}

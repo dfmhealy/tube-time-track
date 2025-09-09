@@ -27,6 +27,7 @@ export interface PodcastEpisode {
   season_number?: number;
   publish_date?: string;
   thumbnail_url?: string;
+  last_position_seconds?: number;
   created_at: string;
   updated_at: string;
   podcast?: Podcast;

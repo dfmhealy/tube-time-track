@@ -32,7 +32,7 @@ export function Home() {
 
   const totalHours = userStats ? Math.floor(userStats.totalSeconds / 3600) : 0;
   const totalMinutes = userStats ? Math.floor((userStats.totalSeconds % 3600) / 60) : 0;
-  const weeklyGoalHours = userStats ? Math.floor(userStats.weeklyGoalSeconds / 3600) : 5;
+  const dailyGoalMinutes = userStats ? Math.floor(userStats.dailyGoalSeconds / 60) : 30;
 
   const isEmpty = videos.length === 0;
 
@@ -80,7 +80,7 @@ export function Home() {
                 </div>
                 <h3 className="font-semibold mb-2">Set Goals</h3>
                 <p className="text-sm text-muted-foreground">
-                  Create weekly learning goals and track progress
+                  Create daily learning goals and track progress
                 </p>
               </CardContent>
             </Card>
@@ -139,9 +139,9 @@ export function Home() {
         <Card className="bg-card/50 backdrop-blur-sm border-border/50">
           <CardContent className="p-4 text-center">
             <div className="text-2xl font-bold text-success">
-              {weeklyGoalHours}h
+              {dailyGoalMinutes}m
             </div>
-            <div className="text-sm text-muted-foreground">Weekly Goal</div>
+            <div className="text-sm text-muted-foreground">Daily Goal</div>
           </CardContent>
         </Card>
 
@@ -170,7 +170,26 @@ export function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {recentVideos.map((video) => (
-            <VideoCard key={video.id} video={video} />
+            <VideoCard 
+              key={video.id} 
+              video={video}
+              onPlay={(video) => {
+                // Set the current video in the app store before navigating
+                const appStore = useAppStore.getState();
+                appStore.setCurrentVideo(video);
+                setCurrentView('player');
+              }}
+              onDelete={async (videoId) => {
+                try {
+                  await DatabaseService.deleteVideo(videoId);
+                  const updatedVideos = videos.filter(v => v.id !== videoId);
+                  setVideos(updatedVideos);
+                  setRecentVideos(updatedVideos.slice(0, 4));
+                } catch (error) {
+                  console.error('Failed to delete video:', error);
+                }
+              }}
+            />
           ))}
         </div>
       </div>
