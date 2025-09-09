@@ -150,11 +150,24 @@ export function Podcasts() {
   const handleImportPodcast = async (searchResult: PodcastSearchResult) => {
     setImportingPodcast(searchResult.id);
     try {
-      // Import podcast with episodes
-      const { podcast: importedPodcast, episodes: importedEpisodes } = await podcastApiService.importPodcast(searchResult);
+      // Import podcast metadata first (quick operation)
+      const importPromise = podcastApiService.importPodcast(searchResult);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Import timeout - RSS feed may be slow or unavailable')), 25000)
+      );
       
-      // Save to database
-      const { podcast, episodes } = await PodcastDatabaseService.importPodcastWithEpisodes(
+      const { podcast: importedPodcast, episodes: importedEpisodes } = await Promise.race([
+        importPromise,
+        timeoutPromise
+      ]) as { podcast: any; episodes: any[] };
+      
+      if (!importedEpisodes || importedEpisodes.length === 0) {
+        throw new Error('No episodes found in this podcast feed');
+      }
+      
+      // Create podcast entry immediately with minimal episodes (first 10)
+      const initialEpisodes = importedEpisodes.slice(0, 10);
+      const { podcast } = await PodcastDatabaseService.importPodcastWithEpisodes(
         {
           title: importedPodcast.title,
           description: importedPodcast.description || '',
@@ -166,7 +179,7 @@ export function Podcasts() {
           category: importedPodcast.category || '',
           total_episodes: importedEpisodes.length
         },
-        importedEpisodes.map(ep => ({
+        initialEpisodes.map(ep => ({
           title: ep.title,
           description: ep.description || '',
           audio_url: ep.audio_url,
@@ -177,6 +190,51 @@ export function Podcasts() {
           thumbnail_url: ep.thumbnail_url
         }))
       );
+      
+      // Import remaining episodes in background (lazy loading)
+      if (importedEpisodes.length > 10) {
+        const remainingEpisodes = importedEpisodes.slice(10);
+        const batchSize = 25;
+        
+        // Process in smaller batches with delays to avoid overwhelming the database
+        const processBatch = async (batch: any[], delay: number) => {
+          await new Promise(resolve => setTimeout(resolve, delay));
+          try {
+            await PodcastDatabaseService.importPodcastWithEpisodes(
+              {
+                title: importedPodcast.title,
+                description: importedPodcast.description || '',
+                creator: importedPodcast.creator,
+                thumbnail_url: importedPodcast.thumbnail_url,
+                rss_url: importedPodcast.rss_url || '',
+                website_url: importedPodcast.website_url || '',
+                language: importedPodcast.language,
+                category: importedPodcast.category || '',
+                total_episodes: importedEpisodes.length
+              },
+              batch.map(ep => ({
+                title: ep.title,
+                description: ep.description || '',
+                audio_url: ep.audio_url,
+                duration_seconds: ep.duration_seconds,
+                episode_number: ep.episode_number,
+                season_number: ep.season_number,
+                publish_date: ep.publish_date,
+                thumbnail_url: ep.thumbnail_url
+              }))
+            );
+          } catch (error) {
+            console.error('Background episode import failed:', error);
+          }
+        };
+        
+        // Schedule background imports with staggered delays
+        for (let i = 0; i < remainingEpisodes.length; i += batchSize) {
+          const batch = remainingEpisodes.slice(i, i + batchSize);
+          const delay = Math.floor(i / batchSize) * 2000; // 2 second delays between batches
+          processBatch(batch, delay);
+        }
+      }
 
       // Refresh local data
       const [updatedPodcasts, updatedSubscriptions] = await Promise.all([
@@ -197,9 +255,12 @@ export function Podcasts() {
       setExternalSearchQuery('');
     } catch (error) {
       console.error('Failed to import podcast:', error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to import podcast";
+      console.error('Podcast import error details:', error);
+      
       toast({
         title: "Import Error",
-        description: error instanceof Error ? error.message : "Failed to import podcast",
+        description: errorMessage,
         variant: "destructive"
       });
     } finally {

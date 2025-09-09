@@ -196,7 +196,7 @@ function PlayerViewContent() {
             setPlaybackRate(event.target.getPlaybackRate());
             
             // Resume from last position if available
-            if (currentVideo.lastPositionSeconds && currentVideo.lastPositionSeconds > 30) {
+            if (currentVideo.lastPositionSeconds && currentVideo.lastPositionSeconds > 0) {
               event.target.seekTo(currentVideo.lastPositionSeconds, true);
               setCurrentTime(currentVideo.lastPositionSeconds);
             }

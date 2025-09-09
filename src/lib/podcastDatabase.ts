@@ -125,7 +125,7 @@ export const PodcastDatabaseService = {
 
       if (error) {
         console.error(`Failed to insert episode batch ${i}-${i + batchSize}:`, error);
-        continue; // Continue with next batch
+        continue;
       }
 
       if (data) {
@@ -299,5 +299,23 @@ export const PodcastDatabaseService = {
     return sessions
       .filter(session => session.ended_at)
       .reduce((total, session) => total + session.seconds_listened, 0);
+  },
+
+  async getLastPositionForEpisode(episodeId: string): Promise<number> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return 0;
+
+    // Get the most recent completed session to find last position
+    const { data, error } = await supabase
+      .from('podcast_sessions')
+      .select('seconds_listened')
+      .eq('user_id', user.id)
+      .eq('episode_id', episodeId)
+      .not('ended_at', 'is', null)
+      .order('ended_at', { ascending: false })
+      .limit(1);
+    
+    if (error || !data || data.length === 0) return 0;
+    return data[0].seconds_listened || 0;
   }
 };

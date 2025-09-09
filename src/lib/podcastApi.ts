@@ -75,22 +75,112 @@ class RSSParser {
     episodes: PodcastEpisodeResult[];
   }> {
     try {
-      // Use a CORS proxy for RSS feed parsing
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
-      const response = await fetch(proxyUrl);
+      // Try multiple CORS proxies for better reliability
+      const proxies = [
+        `https://corsproxy.io/?${encodeURIComponent(rssUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`,
+        `https://thingproxy.freeboard.io/fetch/${rssUrl}`,
+        // Direct fetch as last resort (may fail due to CORS)
+        rssUrl
+      ];
       
-      if (!response.ok) {
-        throw new Error(`RSS fetch error: ${response.status}`);
+      let response: Response | null = null;
+      let lastError: Error | null = null;
+      
+      // Try each proxy with shorter timeout
+      let successfulProxyUrl = '';
+      for (let i = 0; i < proxies.length; i++) {
+        const proxyUrl = proxies[i];
+        const isDirect = i === proxies.length - 1; // Last one is direct URL
+        
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout per proxy
+          
+          const fetchOptions: RequestInit = { 
+            signal: controller.signal,
+            headers: {
+              'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+            }
+          };
+          
+          // Add mode for direct requests
+          if (isDirect) {
+            fetchOptions.mode = 'cors';
+          }
+          
+          response = await fetch(proxyUrl, fetchOptions);
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            successfulProxyUrl = proxyUrl;
+            console.log(`RSS feed loaded successfully via: ${isDirect ? 'direct' : 'proxy'}`);
+            break;
+          }
+        } catch (error) {
+          lastError = error as Error;
+          console.warn(`${isDirect ? 'Direct fetch' : 'Proxy'} ${proxyUrl} failed:`, error);
+          continue;
+        }
+      }
+      
+      if (!response || !response.ok) {
+        throw lastError || new Error('All RSS proxies failed');
       }
 
-      const data = await response.json();
+      let xmlContent: string;
+      
+      // Handle different response formats based on proxy used
+      const isAllOrigins = successfulProxyUrl.includes('allorigins.win');
+      const contentType = response.headers.get('content-type') || '';
+      
+      if (isAllOrigins && contentType.includes('application/json')) {
+        // AllOrigins returns JSON with contents field
+        const data = await response.json();
+        xmlContent = data.contents || data;
+        
+        if (typeof xmlContent !== 'string') {
+          throw new Error('Proxy returned invalid XML content');
+        }
+      } else {
+        // Direct XML response from other proxies or direct fetch
+        xmlContent = await response.text();
+      }
+      
+      // Validate we have XML content
+      if (!xmlContent || !xmlContent.trim().startsWith('<')) {
+        throw new Error('Response does not contain valid XML');
+      }
+      
       const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(data.contents, 'text/xml');
+      const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
+
+      // Check for XML parsing errors
+      const parseError = xmlDoc.querySelector('parsererror');
+      if (parseError) {
+        console.error('XML parsing error:', parseError.textContent);
+        throw new Error('RSS feed contains invalid XML');
+      }
 
       // Parse podcast info
       const channel = xmlDoc.querySelector('channel');
       if (!channel) {
-        throw new Error('Invalid RSS feed format');
+        // Try alternative RSS formats
+        const rss = xmlDoc.querySelector('rss channel') || 
+                   xmlDoc.querySelector('feed') || // Atom feed
+                   xmlDoc.querySelector('rdf\\:RDF channel'); // RDF format
+        
+        if (!rss) {
+          console.error('RSS structure:', xmlDoc.documentElement?.tagName);
+          throw new Error('Unsupported RSS/feed format - no channel found');
+        }
+        
+        // Use the found element as channel
+        const actualChannel = rss.tagName === 'channel' ? rss : rss.querySelector('channel');
+        if (!actualChannel) {
+          throw new Error('Invalid RSS feed structure');
+        }
       }
 
       const podcast: Partial<PodcastSearchResult> = {
@@ -105,11 +195,14 @@ class RSSParser {
         source: 'rss' as const
       };
 
-      // Parse episodes
-      const items = Array.from(xmlDoc.querySelectorAll('item'));
+      // Parse episodes (limit to first 100 for performance)
+      const items = Array.from(xmlDoc.querySelectorAll('item')).slice(0, 100);
       const episodes: PodcastEpisodeResult[] = items.map((item, index) => {
         const enclosure = item.querySelector('enclosure');
         const audioUrl = enclosure?.getAttribute('url') || '';
+        
+        // Skip episodes without audio URLs
+        if (!audioUrl) return null;
         
         return {
           id: `rss_${Date.now()}_${index}`,
@@ -123,7 +216,7 @@ class RSSParser {
           publish_date: this.parseDate(this.getTextContent(item, 'pubDate') || ''),
           thumbnail_url: this.getImageUrl(item) || podcast.thumbnail_url || ''
         };
-      }).filter(episode => episode.audio_url); // Only include episodes with audio
+      }).filter(episode => episode !== null) as PodcastEpisodeResult[];
 
       return { podcast, episodes };
     } catch (error) {
@@ -133,21 +226,73 @@ class RSSParser {
   }
 
   private getTextContent(element: Element, selector: string): string | null {
-    const found = element.querySelector(selector);
-    return found?.textContent?.trim() || null;
+    try {
+      // Handle namespaced elements by trying multiple approaches
+      let selected: Element | null = null;
+      
+      // First try the selector as-is
+      try {
+        selected = element.querySelector(selector);
+      } catch (e) {
+        // If selector fails, try without namespace prefix
+        const withoutNamespace = selector.includes(':') ? selector.split(':')[1] : selector;
+        try {
+          selected = element.querySelector(withoutNamespace);
+        } catch (e2) {
+          // Try getElementsByTagName for namespaced elements
+          const tagName = selector.replace('\\:', ':');
+          const elements = element.getElementsByTagName(tagName);
+          selected = elements.length > 0 ? elements[0] : null;
+        }
+      }
+      
+      return selected?.textContent?.trim() || null;
+    } catch (error) {
+      console.warn(`Failed to get text content for selector: ${selector}`, error);
+      return null;
+    }
   }
 
   private getImageUrl(element: Element): string | null {
-    // Try iTunes image first
-    const itunesImage = element.querySelector('itunes\\:image');
-    if (itunesImage) {
-      return itunesImage.getAttribute('href');
+    // Try iTunes image with multiple approaches
+    try {
+      const itunesImage = element.querySelector('itunes\\:image');
+      if (itunesImage) {
+        return itunesImage.getAttribute('href');
+      }
+    } catch (e) {
+      // Fallback for invalid selector
+    }
+
+    // Try getElementsByTagName for namespaced elements
+    try {
+      const itunesImages = element.getElementsByTagName('itunes:image');
+      if (itunesImages.length > 0) {
+        return itunesImages[0].getAttribute('href');
+      }
+    } catch (e) {
+      // Continue to next approach
     }
 
     // Try regular image
-    const image = element.querySelector('image url');
-    if (image) {
-      return image.textContent?.trim() || null;
+    try {
+      const image = element.querySelector('image url');
+      if (image) {
+        return image.textContent?.trim() || null;
+      }
+    } catch (e) {
+      // Continue to next approach
+    }
+
+    // Try image element directly
+    try {
+      const image = element.querySelector('image');
+      if (image) {
+        const url = image.querySelector('url');
+        return url?.textContent?.trim() || null;
+      }
+    } catch (e) {
+      // No more fallbacks
     }
 
     return null;
@@ -227,20 +372,49 @@ export class PodcastApiService {
     }
 
     try {
-      const { podcast: rssData, episodes } = await this.getPodcastFromRSS(searchResult.rss_url);
-      
-      // Merge search result with RSS data
-      const podcast: PodcastSearchResult = {
-        ...searchResult,
-        ...rssData,
-        id: searchResult.id, // Keep original ID
-        total_episodes: episodes.length
+      // Add timeout wrapper for the entire import process
+      const importWithTimeout = async () => {
+        const { podcast: rssData, episodes } = await this.getPodcastFromRSS(searchResult.rss_url!);
+        
+        // Merge search result with RSS data
+        const podcast: PodcastSearchResult = {
+          ...searchResult,
+          ...rssData,
+          id: searchResult.id, // Keep original ID
+          total_episodes: episodes.length
+        };
+
+        return { podcast, episodes };
       };
 
-      return { podcast, episodes };
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+
+      try {
+        const result = await importWithTimeout();
+        clearTimeout(timeoutId);
+        return result;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
     } catch (error) {
       console.error('Failed to import podcast:', error);
-      throw new Error('Failed to import podcast episodes');
+      
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          throw new Error('RSS feed took too long to load - please try again');
+        }
+        if (error.message.includes('All RSS proxies failed')) {
+          throw new Error('Unable to access RSS feed - it may be temporarily unavailable');
+        }
+        if (error.message.includes('Invalid RSS feed format')) {
+          throw new Error('RSS feed format is not supported');
+        }
+      }
+      
+      throw new Error('Failed to import podcast - please check the RSS feed URL');
     }
   }
 }

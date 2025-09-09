@@ -74,7 +74,7 @@ export function Stats() {
     );
   }
 
-  const dailyGoalSeconds = appStore.dailyGoal || 30 * 60; // Using dailyGoal (in seconds)
+  const dailyGoalSeconds = appStore.dailyGoal; // Using dailyGoal from appStore
   
   // Calculate today's watch time
   const today = new Date().toISOString().split('T')[0];

@@ -39,6 +39,7 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<PodcastSession | null>(null);
   const [totalListenTime, setTotalListenTime] = useState(0);
+  const [lastPosition, setLastPosition] = useState(0);
   
   // Daily goal tracking
   const { dailyGoal } = useAppStore();
@@ -68,13 +69,29 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
     return unsubscribe;
   }, []);
 
+  // Load total listen time and last position for this episode
+  useEffect(() => {
+    const loadListenTime = async () => {
+      try {
+        const [total, lastPosition] = await Promise.all([
+          PodcastDatabaseService.getTotalListenTimeForEpisode(episode.id),
+          PodcastDatabaseService.getLastPositionForEpisode(episode.id)
+        ]);
+        setTotalListenTime(total);
+        // Set last position for resume functionality
+        setLastPosition(lastPosition);
+      } catch (error) {
+        console.error('Failed to load listen time:', error);
+      }
+    };
+    
+    loadListenTime();
+  }, [episode.id]);
+
   // Initialize session and previous listen time
   useEffect(() => {
     const initializeSession = async () => {
       try {
-        const listenTime = await PodcastDatabaseService.getTotalListenTimeForEpisode(episode.id);
-        setTotalListenTime(listenTime);
-
         const newSession = await PodcastDatabaseService.startListenSession(episode.id);
         setSession(newSession);
       } catch (error) {
@@ -106,13 +123,20 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
       setDuration(audioRef.current.duration);
       setLoading(false);
       
-      // Resume from previous listen position if available (only if listened for more than 30 seconds)
-      if (episode.last_position_seconds && episode.last_position_seconds > 30 && episode.last_position_seconds < audioRef.current.duration - 30) {
-        audioRef.current.currentTime = episode.last_position_seconds;
-        setCurrentTime(episode.last_position_seconds);
+      // Resume from previous listen position if available
+      if (lastPosition > 0 && lastPosition < audioRef.current.duration - 10) {
+        audioRef.current.currentTime = lastPosition;
+        setCurrentTime(lastPosition);
       }
+      
+      // Auto-play the episode
+      audioRef.current.play().then(() => {
+        setIsPlaying(true);
+      }).catch((error) => {
+        console.log('Auto-play prevented by browser:', error);
+      });
     }
-  }, [episode.last_position_seconds]);
+  }, [lastPosition]);
 
   const handleTimeUpdate = useCallback(() => {
     if (audioRef.current && !audioRef.current.seeking) {

@@ -30,9 +30,10 @@ export function Home() {
     loadData();
   }, [setVideos, setUserStats]);
 
+  const { dailyGoal } = useAppStore();
   const totalHours = userStats ? Math.floor(userStats.totalSeconds / 3600) : 0;
   const totalMinutes = userStats ? Math.floor((userStats.totalSeconds % 3600) / 60) : 0;
-  const dailyGoalMinutes = userStats ? Math.floor(userStats.dailyGoalSeconds / 60) : 30;
+  const dailyGoalMinutes = Math.floor(dailyGoal / 60);
 
   const isEmpty = videos.length === 0;
 
