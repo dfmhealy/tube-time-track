@@ -28,6 +28,7 @@ export interface PodcastEpisode {
   publish_date?: string;
   thumbnail_url?: string;
   last_position_seconds?: number;
+  is_completed?: boolean;
   created_at: string;
   updated_at: string;
   podcast?: Podcast;
@@ -317,5 +318,28 @@ export const PodcastDatabaseService = {
     
     if (error || !data || data.length === 0) return 0;
     return data[0].seconds_listened || 0;
+  },
+
+  async markEpisodeAsCompleted(episodeId: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { error } = await supabase
+      .from('podcast_episodes')
+      .update({ is_completed: true })
+      .eq('id', episodeId);
+    
+    if (error) throw new Error(`Failed to mark episode as completed: ${error.message}`);
+  },
+
+  async getEpisodeCompletionStatus(episodeId: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .from('podcast_episodes')
+      .select('is_completed')
+      .eq('id', episodeId)
+      .single();
+    
+    if (error) return false;
+    return data?.is_completed || false;
   }
 };

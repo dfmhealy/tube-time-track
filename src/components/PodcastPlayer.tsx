@@ -174,6 +174,20 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
           dailyTimeTracker.addTime(deltaSeconds);
           
           const currentSeconds = Math.floor(audioRef.current.currentTime);
+          const duration = audioRef.current.duration;
+          
+          // Check if episode is nearly complete (1 minute or less remaining)
+          const remainingTime = duration - currentSeconds;
+          if (remainingTime <= 60 && !episode.is_completed) {
+            try {
+              await PodcastDatabaseService.markEpisodeAsCompleted(episode.id);
+              // Update local episode state
+              episode.is_completed = true;
+            } catch (error) {
+              console.error('Failed to mark episode as completed:', error);
+            }
+          }
+          
           try {
             await PodcastDatabaseService.updateListenSession(session.id, {
               seconds_listened: currentSeconds,
@@ -193,7 +207,7 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
         clearInterval(progressIntervalRef.current);
       }
     };
-  }, [isPlaying, session, playbackRate]);
+  }, [isPlaying, session, playbackRate, episode]);
 
   // Playback controls
   const togglePlayPause = useCallback(() => {

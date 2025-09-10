@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Clock, Play, TrendingUp, Trash2 } from 'lucide-react';
 import { URLInput } from '@/components/URLInput';
 import { VideoCard } from '@/components/VideoCard';
 import { useAppStore, useLibraryStore, useStatsStore } from '@/store/appStore';
 import { DatabaseService } from '@/lib/database';
 import { formatDuration } from '@/lib/youtube';
-import { Play, Target, Clock, TrendingUp } from 'lucide-react';
 
 export function Home() {
   const { setCurrentView } = useAppStore();
@@ -171,26 +172,67 @@ export function Home() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {recentVideos.map((video) => (
-            <VideoCard 
-              key={video.id} 
-              video={video}
-              onPlay={(video) => {
-                // Set the current video in the app store before navigating
-                const appStore = useAppStore.getState();
-                appStore.setCurrentVideo(video);
-                setCurrentView('player');
-              }}
-              onDelete={async (videoId) => {
-                try {
-                  await DatabaseService.deleteVideo(videoId);
-                  const updatedVideos = videos.filter(v => v.id !== videoId);
-                  setVideos(updatedVideos);
-                  setRecentVideos(updatedVideos.slice(0, 4));
-                } catch (error) {
-                  console.error('Failed to delete video:', error);
-                }
-              }}
-            />
+            <div key={video.id} className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <img
+                  src={video.thumbnailUrl}
+                  alt={video.title}
+                  className="w-16 h-16 rounded-lg object-cover"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="font-medium text-white line-clamp-2 flex-1">
+                      {video.title}
+                    </h3>
+                    {video.isCompleted && (
+                      <div className="flex items-center gap-1 text-green-400 text-sm">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                        <span className="text-xs">Completed</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-white/70 text-sm mb-1">{video.channelTitle}</p>
+                  <div className="flex items-center gap-2 text-xs text-white/60">
+                    <Clock className="w-3 h-3" />
+                    {formatDuration(video.durationSeconds)}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    // Set the current video in the app store before navigating
+                    const appStore = useAppStore.getState();
+                    appStore.setCurrentVideo(video);
+                    setCurrentView('player');
+                  }}
+                  className="bg-white/20 hover:bg-white/30 text-white border-white/30"
+                >
+                  <Play className="w-3 h-3 mr-1" />
+                  Play
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    try {
+                      await DatabaseService.deleteVideo(video.id);
+                      const updatedVideos = videos.filter(v => v.id !== video.id);
+                      setVideos(updatedVideos);
+                      setRecentVideos(updatedVideos.slice(0, 4));
+                    } catch (error) {
+                      console.error('Failed to delete video:', error);
+                    }
+                  }}
+                  className="text-white/70 hover:text-white hover:bg-white/20"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
           ))}
         </div>
       </div>

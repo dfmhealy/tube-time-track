@@ -214,14 +214,13 @@ function PlayerViewContent() {
                 setIsPlaying(false);
                 if (session && watched > saved) {
                   const flooredSeconds = Math.floor(watched);
-                  updateWatchHistory(session, flooredSeconds, rate).then(() => {
-                    setLastSavedTime(flooredSeconds);
-                  }).catch(console.error);
+                  updateWatchHistory(session, flooredSeconds, rate);
+                  setLastSavedTime(flooredSeconds);
                 }
                 break;
               case PlayerState.ENDED:
                 setIsPlaying(false);
-                if (session) endWatchSession().catch(console.error);
+                if (session) endWatchSession();
                 break;
               default: break;
             }
@@ -268,9 +267,21 @@ function PlayerViewContent() {
   useEffect(() => {
     if (!isPlayerReady) return;
     const intervalId = setInterval(() => {
-      if (!player) return;
+      if (!player || !currentVideo) return;
       const playerState = player.getPlayerState();
-      setCurrentTime(player.getCurrentTime());
+      const currentTime = player.getCurrentTime();
+      const duration = player.getDuration();
+      
+      setCurrentTime(currentTime);
+      
+      // Check if video is nearly complete (1 minute or less remaining)
+      const remainingTime = duration - currentTime;
+      if (remainingTime <= 60 && !currentVideo.isCompleted) {
+        DatabaseService.markVideoAsCompleted(currentVideo.id).catch(console.error);
+        // Update local video state
+        currentVideo.isCompleted = true;
+      }
+      
       const isTracking = playerState === PlayerState.PLAYING && visibilityRef.current && focusRef.current;
       if (playerState === PlayerState.PLAYING && !activeWatchSession) {
         startWatchSession();
@@ -288,7 +299,7 @@ function PlayerViewContent() {
       }
     }, 1000);
     return () => clearInterval(intervalId);
-  }, [player, isPlayerReady, activeWatchSession, startWatchSession]);
+  }, [player, isPlayerReady, activeWatchSession, startWatchSession, currentVideo]);
   
   useEffect(() => {
     if (!activeWatchSession || totalWatchedSeconds < lastSavedTime + 10) return;

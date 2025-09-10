@@ -284,6 +284,19 @@ export const DatabaseService = {
     return sessions.reduce((total, session) => total + session.secondsWatched, 0);
   },
 
+  async markVideoAsCompleted(videoId: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { error } = await supabase
+      .from('videos')
+      .update({ is_completed: true })
+      .eq('id', videoId)
+      .eq('user_id', user.id);
+    
+    if (error) throw new Error(`Failed to mark video as completed: ${error.message}`);
+  },
+
   // User stats operations
   async getUserStats(): Promise<UserStats | undefined> {
     const { data: { user } } = await supabase.auth.getUser();

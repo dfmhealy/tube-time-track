@@ -611,7 +611,17 @@ export function Podcasts() {
                               <Play className="w-3 h-3" />
                             </Button>
                             <div className="flex-1 min-w-0">
-                              <h4 className="font-medium mb-1 line-clamp-2">{episode.title}</h4>
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="font-medium line-clamp-2 flex-1">{episode.title}</h4>
+                                {episode.is_completed && (
+                                  <div className="flex items-center gap-1 text-green-600 text-sm">
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                    <span className="text-xs">Completed</span>
+                                  </div>
+                                )}
+                              </div>
                               <p className="text-sm text-muted-foreground mb-2 line-clamp-2">
                                 {episode.description}
                               </p>
