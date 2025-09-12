@@ -177,8 +177,16 @@ function PlayerViewContent() {
     let mounted = true;
     let ytPlayer: any = null;
 
-    const initializePlayer = () => {
+    const initializePlayer = async () => {
       if (!window.YT?.Player || !currentVideo || !mounted) return;
+      // Refresh latest video metadata to pick up last_position_seconds from any source (mini-player, other views)
+      let resumePos = currentVideo.lastPositionSeconds || 0;
+      try {
+        const fresh = await DatabaseService.getVideo(currentVideo.id);
+        if (fresh?.lastPositionSeconds && fresh.lastPositionSeconds > resumePos) {
+          resumePos = fresh.lastPositionSeconds;
+        }
+      } catch {}
       ytPlayer = new window.YT.Player('youtube-player', {
         height: '100%',
         width: '100%',
@@ -196,9 +204,9 @@ function PlayerViewContent() {
             setPlaybackRate(event.target.getPlaybackRate());
             
             // Resume from last position if available
-            if (currentVideo.lastPositionSeconds && currentVideo.lastPositionSeconds > 0) {
-              event.target.seekTo(currentVideo.lastPositionSeconds, true);
-              setCurrentTime(currentVideo.lastPositionSeconds);
+            if (resumePos && resumePos > 0) {
+              event.target.seekTo(resumePos, true);
+              setCurrentTime(resumePos);
             }
             
             event.target.playVideo();
@@ -217,6 +225,11 @@ function PlayerViewContent() {
                   updateWatchHistory(session, flooredSeconds, rate);
                   setLastSavedTime(flooredSeconds);
                 }
+                // Persist last position on pause/buffer
+                try {
+                  const pos = Math.floor(event.target.getCurrentTime?.() || currentTime);
+                  void DatabaseService.updateVideoProgress(currentVideo.id, pos);
+                } catch {}
                 break;
               case PlayerState.ENDED:
                 setIsPlaying(false);

@@ -9,7 +9,8 @@ import { useAppStore, useLibraryStore, useStatsStore } from '@/store/appStore';
 import { usePlayerStore } from '@/store/playerStore';
 import { DatabaseService } from '@/lib/database';
 import { useToast } from '@/hooks/use-toast';
-import { formatDuration } from '@/lib/youtube';
+import { formatDuration, getVideoInfoFromOEmbed } from '@/lib/youtube';
+import { fetchPlaylistVideoIds, extractPlaylistId } from '@/lib/youtubePlaylist';
 
 export function Home() {
   const { setCurrentView } = useAppStore();
@@ -17,6 +18,9 @@ export function Home() {
   const { userStats, setUserStats } = useStatsStore();
   const [recentVideos, setRecentVideos] = useState(videos.slice(0, 4));
   const { toast } = useToast();
+  const [playlistUrl, setPlaylistUrl] = useState('');
+  const [importingPlaylist, setImportingPlaylist] = useState(false);
+  const [enqueueAll, setEnqueueAll] = useState(true);
 
   useEffect(() => {
     // Load initial data
@@ -162,6 +166,84 @@ export function Home() {
 
       {/* Recent Videos */}
       <div>
+        {/* Playlist Import */}
+        <div className="mb-6 p-4 rounded-lg bg-white/5 border border-white/10">
+          <div className="flex flex-col md:flex-row md:items-center gap-3">
+            <input
+              type="text"
+              placeholder="Paste a YouTube playlist URL or ID..."
+              value={playlistUrl}
+              onChange={(e) => setPlaylistUrl(e.target.value)}
+              className="flex-1 px-3 py-2 rounded bg-white/10 border border-white/20 text-white placeholder:text-white/60"
+            />
+            <label className="flex items-center gap-2 text-sm text-white/80">
+              <input type="checkbox" checked={enqueueAll} onChange={(e) => setEnqueueAll(e.target.checked)} />
+              Enqueue all after import
+            </label>
+            <Button
+              onClick={async () => {
+                if (!playlistUrl.trim()) return;
+                setImportingPlaylist(true);
+                try {
+                  const ids = await fetchPlaylistVideoIds(playlistUrl, 50);
+                  if (!ids.length) {
+                    toast({ title: 'No videos found', description: 'Could not extract videos from playlist' });
+                    return;
+                  }
+                  const added: string[] = [];
+                  for (const vid of ids) {
+                    try {
+                      const info = await getVideoInfoFromOEmbed(vid);
+                      if (!info) continue;
+                      const addedVideo = await DatabaseService.addVideo({
+                        youtubeId: info.id,
+                        title: info.title,
+                        channelTitle: info.channelTitle,
+                        durationSeconds: 0,
+                        thumbnailUrl: info.thumbnailUrl,
+                        tags: [],
+                        addedAt: new Date().toISOString(),
+                      });
+                      added.push(addedVideo.id);
+                    } catch (e) {
+                      // skip individual failures
+                      continue;
+                    }
+                  }
+                  if (added.length) {
+                    // refresh library
+                    const allVideos = await DatabaseService.getAllVideos();
+                    setVideos(allVideos);
+                    setRecentVideos(allVideos.slice(0, 4));
+                    toast({ title: 'Playlist Imported', description: `${added.length} videos added` });
+                    if (enqueueAll) {
+                      const player = usePlayerStore.getState();
+                      // enqueue in order, play first if nothing playing
+                      if (!player.current && added.length) {
+                        player.play({ type: 'video', id: added[0] });
+                        for (const id of added.slice(1)) player.enqueueLast({ type: 'video', id });
+                      } else {
+                        for (const id of added) player.enqueueLast({ type: 'video', id });
+                      }
+                    }
+                  } else {
+                    toast({ title: 'Nothing added', description: 'No playable items found in this playlist' });
+                  }
+                } catch (e) {
+                  console.error('Playlist import failed', e);
+                  toast({ title: 'Import failed', description: 'Unable to import playlist', variant: 'destructive' });
+                } finally {
+                  setImportingPlaylist(false);
+                  setPlaylistUrl('');
+                }
+              }}
+              disabled={!playlistUrl.trim() || importingPlaylist}
+              className="bg-primary hover:bg-primary/90"
+            >
+              {importingPlaylist ? 'Importing...' : 'Import Playlist'}
+            </Button>
+          </div>
+        </div>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-semibold">Continue Watching</h2>
           <Button 
@@ -310,6 +392,13 @@ export function Home() {
         >
           <Clock className="h-4 w-4 mr-2" />
           View Stats
+        </Button>
+        <Button 
+          variant="outline" 
+          onClick={() => (window.location.href = '/subscriptions')}
+          className="border-border/50 hover:border-primary/50 transition-smooth"
+        >
+          Subscriptions
         </Button>
       </div>
     </div>

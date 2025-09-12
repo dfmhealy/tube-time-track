@@ -14,6 +14,7 @@ export const MiniPlayer: React.FC = () => {
   const progressTimer = useRef<number | null>(null);
   const ytPlayerRef = useRef<any>(null);
   const ytContainerRef = useRef<HTMLDivElement>(null);
+  const videoSessionIdRef = useRef<string | null>(null);
   const [session, setSession] = useState<PodcastSession | null>(null);
   const [meta, setMeta] = useState<{ podcast?: PodcastEpisode; video?: Video } | null>(null);
   const [duration, setDuration] = useState(0);
@@ -126,6 +127,7 @@ export const MiniPlayer: React.FC = () => {
       const VideoId = meta.video.youtubeId;
       try {
         const s = await DatabaseService.startWatchSession(meta.video.id);
+        videoSessionIdRef.current = s.id;
         if (!mounted) return;
         // Create hidden/small player
         ytPlayerRef.current = new (window as any).YT.Player(ytContainerRef.current, {
@@ -153,10 +155,21 @@ export const MiniPlayer: React.FC = () => {
                 // end session
                 const cur = Math.floor(ytPlayerRef.current.getCurrentTime() || 0);
                 try {
-                  await DatabaseService.endWatchSession(s.id, cur);
+                  if (videoSessionIdRef.current) {
+                    await DatabaseService.endWatchSession(videoSessionIdRef.current, cur);
+                  }
                   await DatabaseService.updateVideoProgress(meta.video!.id, cur);
                 } catch {}
                 next();
+              } else if (e.data === YT.PlayerState.PAUSED) {
+                // persist on pause
+                const cur = Math.floor(ytPlayerRef.current.getCurrentTime() || 0);
+                try {
+                  if (videoSessionIdRef.current) {
+                    await DatabaseService.updateWatchSession(videoSessionIdRef.current, { secondsWatched: cur });
+                  }
+                  await DatabaseService.updateVideoProgress(meta.video!.id, cur);
+                } catch {}
               }
             }
           }
@@ -173,7 +186,9 @@ export const MiniPlayer: React.FC = () => {
           setGlobalPos(cur);
           await dailyTimeTracker.addTime(1);
           try {
-            await DatabaseService.updateWatchSession(s.id, { secondsWatched: cur });
+            if (videoSessionIdRef.current) {
+              await DatabaseService.updateWatchSession(videoSessionIdRef.current, { secondsWatched: cur });
+            }
             await DatabaseService.updateVideoProgress(meta.video!.id, cur);
           } catch {}
           // completion logic similar to podcasts
@@ -195,8 +210,37 @@ export const MiniPlayer: React.FC = () => {
         try { ytPlayerRef.current.destroy(); } catch {}
       }
       ytPlayerRef.current = null;
+      videoSessionIdRef.current = null;
     };
   }, [isVideo, meta?.video?.id, isPlaying]);
+
+  // Persist video progress on tab hidden / unload
+  useEffect(() => {
+    const persistVideo = async () => {
+      if (!ytPlayerRef.current || !meta?.video) return;
+      const cur = Math.floor(ytPlayerRef.current.getCurrentTime() || 0);
+      try {
+        if (videoSessionIdRef.current) {
+          await DatabaseService.updateWatchSession(videoSessionIdRef.current, { secondsWatched: cur });
+        }
+        await DatabaseService.updateVideoProgress(meta.video.id, cur);
+      } catch {}
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        void persistVideo();
+      }
+    };
+    const onBeforeUnload = () => { void persistVideo(); };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [meta?.video?.id]);
 
   // Control playback state
   useEffect(() => {
