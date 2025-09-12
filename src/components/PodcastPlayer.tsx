@@ -25,9 +25,10 @@ import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 interface PodcastPlayerProps {
   episode: PodcastEpisode;
   onClose?: () => void;
+  onEpisodeUpdate?: (updatedEpisode: PodcastEpisode) => void;
 }
 
-export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
+export function PodcastPlayer({ episode, onClose, onEpisodeUpdate }: PodcastPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout>();
   const [isPlaying, setIsPlaying] = useState(false);
@@ -38,6 +39,7 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
   const [playbackRate, setPlaybackRate] = useState(1);
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<PodcastSession | null>(null);
+  const markedCompleteRef = useRef(false);
   const [totalListenTime, setTotalListenTime] = useState(0);
   const [lastPosition, setLastPosition] = useState(0);
   
@@ -117,6 +119,19 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
     };
   }, [episode.id, sessionListenTime, updateTotalSeconds]);
 
+  // Keep Podcast Player daily progress in sync with the global tracker
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    (async () => {
+      const total = await dailyTimeTracker.loadDailyTime();
+      setDailyListenTime(total);
+      unsubscribe = dailyTimeTracker.subscribe((t) => setDailyListenTime(t));
+    })();
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
   // Audio event handlers
   const handleLoadedMetadata = useCallback(() => {
     if (audioRef.current) {
@@ -143,6 +158,43 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
       setCurrentTime(audioRef.current.currentTime);
     }
   }, []);
+
+  // Persist progress on pause and when tab goes hidden/unload
+  useEffect(() => {
+    const persistProgress = async () => {
+      if (audioRef.current && session) {
+        const pos = Math.floor(audioRef.current.currentTime);
+        try {
+          await PodcastDatabaseService.updateListenSession(session.id, {
+            seconds_listened: pos,
+            avg_playback_rate: playbackRate
+          });
+          await PodcastDatabaseService.updateEpisodeProgress(episode.id, pos);
+        } catch (e) {
+          console.error('Failed to persist progress:', e);
+        }
+      }
+    };
+
+    const onPause = () => { void persistProgress(); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        void persistProgress();
+      }
+    };
+    const onBeforeUnload = () => { void persistProgress(); };
+
+    const audio = audioRef.current;
+    audio?.addEventListener('pause', onPause);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('beforeunload', onBeforeUnload);
+
+    return () => {
+      audio?.removeEventListener('pause', onPause);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [session, playbackRate, episode.id]);
 
   const handleEnded = useCallback(async () => {
     setIsPlaying(false);
@@ -171,18 +223,26 @@ export function PodcastPlayer({ episode, onClose }: PodcastPlayerProps) {
           const deltaSeconds = (now - lastUpdate) / 1000;
           
           setSessionListenTime(prev => prev + deltaSeconds);
-          dailyTimeTracker.addTime(deltaSeconds);
+          // Add time in whole seconds to avoid inflatable totals
+          if (deltaSeconds >= 1) {
+            await dailyTimeTracker.addTime(Math.floor(deltaSeconds));
+          }
           
           const currentSeconds = Math.floor(audioRef.current.currentTime);
           const duration = audioRef.current.duration;
           
-          // Check if episode is nearly complete (1 minute or less remaining)
+          // Check completion once when truly near the end
           const remainingTime = duration - currentSeconds;
-          if (remainingTime <= 60 && !episode.is_completed) {
+          if (!markedCompleteRef.current && duration >= 120 && remainingTime <= 60) {
             try {
               await PodcastDatabaseService.markEpisodeAsCompleted(episode.id);
               // Update local episode state
               episode.is_completed = true;
+              markedCompleteRef.current = true;
+              // Notify parent component of the update
+              if (onEpisodeUpdate) {
+                onEpisodeUpdate({ ...episode, is_completed: true });
+              }
             } catch (error) {
               console.error('Failed to mark episode as completed:', error);
             }

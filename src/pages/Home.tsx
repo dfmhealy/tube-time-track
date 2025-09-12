@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Clock, Play, TrendingUp, Trash2 } from 'lucide-react';
+import { Clock, Play, TrendingUp, Trash2, Target } from 'lucide-react';
 import { URLInput } from '@/components/URLInput';
 import { VideoCard } from '@/components/VideoCard';
 import { useAppStore, useLibraryStore, useStatsStore } from '@/store/appStore';
+import { usePlayerStore } from '@/store/playerStore';
 import { DatabaseService } from '@/lib/database';
+import { useToast } from '@/hooks/use-toast';
 import { formatDuration } from '@/lib/youtube';
 
 export function Home() {
@@ -14,6 +16,7 @@ export function Home() {
   const { videos, setVideos } = useLibraryStore();
   const { userStats, setUserStats } = useStatsStore();
   const [recentVideos, setRecentVideos] = useState(videos.slice(0, 4));
+  const { toast } = useToast();
 
   useEffect(() => {
     // Load initial data
@@ -203,16 +206,70 @@ export function Home() {
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await DatabaseService.subscribeToChannel(video.channelTitle);
+                      toast({ title: 'Subscribed', description: `Subscribed to ${video.channelTitle}` });
+                    } catch (e) {
+                      console.error(e);
+                      toast({ title: 'Error', description: 'Failed to subscribe', variant: 'destructive' });
+                    }
+                  }}
+                  className="border-white/30 text-white/80 hover:text-white hover:bg-white/10"
+                >
+                  Subscribe
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await DatabaseService.unsubscribeFromChannel(video.channelTitle);
+                      toast({ title: 'Unsubscribed', description: `Unsubscribed from ${video.channelTitle}` });
+                    } catch (e) {
+                      console.error(e);
+                      toast({ title: 'Error', description: 'Failed to unsubscribe', variant: 'destructive' });
+                    }
+                  }}
+                  className="border-white/30 text-white/80 hover:text-white hover:bg-white/10"
+                >
+                  Unsubscribe
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
                   onClick={() => {
-                    // Set the current video in the app store before navigating
-                    const appStore = useAppStore.getState();
-                    appStore.setCurrentVideo(video);
-                    setCurrentView('player');
+                    // Play Now in mini-player queue
+                    const player = usePlayerStore.getState();
+                    player.play({ type: 'video', id: video.id });
                   }}
                   className="bg-white/20 hover:bg-white/30 text-white border-white/30"
                 >
                   <Play className="w-3 h-3 mr-1" />
-                  Play
+                  Play Now
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const player = usePlayerStore.getState();
+                    player.enqueueNext({ type: 'video', id: video.id });
+                  }}
+                  className="border-white/30 text-white/80 hover:text-white hover:bg-white/10"
+                >
+                  Play Next
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const player = usePlayerStore.getState();
+                    player.enqueueLast({ type: 'video', id: video.id });
+                  }}
+                  className="border-white/30 text-white/80 hover:text-white hover:bg-white/10"
+                >
+                  Play Last
                 </Button>
                 <Button
                   size="sm"

@@ -66,6 +66,14 @@ export const PodcastDatabaseService = {
     return data || [];
   },
 
+  async updateEpisodeProgress(episodeId: string, lastPositionSeconds: number): Promise<void> {
+    const { error } = await supabase
+      .from('podcast_episodes')
+      .update({ last_position_seconds: lastPositionSeconds } as any)
+      .eq('id', episodeId);
+    if (error) throw new Error(`Failed to update episode progress: ${error.message}`);
+  },
+
   async createPodcast(podcast: Omit<Podcast, 'id' | 'created_at' | 'updated_at'>): Promise<Podcast> {
     const { data, error } = await supabase
       .from('podcasts')
@@ -273,15 +281,27 @@ export const PodcastDatabaseService = {
   },
 
   async endListenSession(sessionId: string, finalSecondsListened: number): Promise<void> {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('podcast_sessions')
       .update({
         seconds_listened: finalSecondsListened,
         ended_at: new Date().toISOString()
-      })
-      .eq('id', sessionId);
+      } as any)
+      .eq('id', sessionId)
+      .select('*');
     
     if (error) throw new Error(`Failed to end session: ${error.message}`);
+    // Also persist last position on the episode if we can infer episode id
+    if (data && data.length > 0) {
+      const episodeId = data[0].episode_id as string | undefined;
+      if (episodeId) {
+        try {
+          await this.updateEpisodeProgress(episodeId, Math.floor(finalSecondsListened));
+        } catch (e) {
+          console.error('Failed to update episode progress on end:', e);
+        }
+      }
+    }
   },
 
   async getListenSessionsForEpisode(episodeId: string): Promise<PodcastSession[]> {
@@ -306,14 +326,14 @@ export const PodcastDatabaseService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return 0;
 
-    // Get the most recent completed session to find last position
+    // Use the most recent session (ended or in-progress) to resume from last saved position
     const { data, error } = await supabase
       .from('podcast_sessions')
-      .select('seconds_listened')
+      .select('seconds_listened, started_at, ended_at')
       .eq('user_id', user.id)
       .eq('episode_id', episodeId)
-      .not('ended_at', 'is', null)
       .order('ended_at', { ascending: false })
+      .order('started_at', { ascending: false })
       .limit(1);
     
     if (error || !data || data.length === 0) return 0;
@@ -326,7 +346,7 @@ export const PodcastDatabaseService = {
 
     const { error } = await supabase
       .from('podcast_episodes')
-      .update({ is_completed: true })
+      .update({ is_completed: true } as any)
       .eq('id', episodeId);
     
     if (error) throw new Error(`Failed to mark episode as completed: ${error.message}`);
@@ -341,5 +361,15 @@ export const PodcastDatabaseService = {
     
     if (error) return false;
     return data?.is_completed || false;
+  },
+
+  async createEpisodes(episodes: Omit<PodcastEpisode, 'id' | 'created_at' | 'updated_at'>[]): Promise<PodcastEpisode[]> {
+    const { data, error } = await supabase
+      .from('podcast_episodes')
+      .insert(episodes)
+      .select();
+    
+    if (error) throw new Error(`Failed to create episodes: ${error.message}`);
+    return data || [];
   }
 };

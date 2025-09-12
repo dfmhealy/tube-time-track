@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { MiniPlayer } from "@/components/MiniPlayer";
 import { useAuth } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -19,6 +20,8 @@ const App = () => {
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          {/* Persistent mini-player for podcasts/videos */}
+          <MiniPlayer />
           <AppRoutes />
         </BrowserRouter>
       </TooltipProvider>

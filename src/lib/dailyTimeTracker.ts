@@ -21,26 +21,28 @@ export class DailyTimeTracker {
   async loadDailyTime(): Promise<number> {
     try {
       const now = new Date();
-      const today = now.toISOString().split('T')[0];
-      
-      // Get video watch sessions for today
-      const videoSessions = await DatabaseService.getAllWatchSessions();
-      const todayVideoSessions = videoSessions.filter(session => {
-        const sessionDate = new Date(session.startedAt).toISOString().split('T')[0];
-        return sessionDate === today && session.endedAt;
-      });
-      
-      // Get podcast listen sessions for today - using a simpler approach since getAllListenSessions doesn't exist
-      // We'll calculate from user stats which already combines both
-      const userStats = await DatabaseService.getUserStats();
-      
-      // Calculate total time from video sessions
-      const videoTime = todayVideoSessions.reduce((sum, session) => sum + (session.secondsWatched || 0), 0);
-      
-      // For now, use video time as the daily time (podcast tracking will be added via real-time updates)
-      const podcastTime = 0; // Will be tracked via addTime() method during playback
-      
-      this.dailyTime = videoTime + podcastTime;
+      const startOfDayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+
+      // Query totals directly for today to avoid relying on unavailable helpers
+      // 1) Sum video watch seconds from watch_sessions where started_at >= start of day
+      const { data: videoAgg, error: videoErr } = await supabase
+        .from('watch_sessions')
+        .select('seconds_watched, started_at, ended_at');
+      if (videoErr) throw videoErr;
+      const videoTime = (videoAgg || [])
+        .filter(s => s.started_at && new Date(s.started_at) >= new Date(startOfDayIso))
+        .reduce((acc, s) => acc + (s.seconds_watched || 0), 0);
+
+      // 2) Sum podcast listen seconds from podcast_sessions where started_at >= start of day
+      const { data: podcastAgg, error: podcastErr } = await supabase
+        .from('podcast_sessions')
+        .select('seconds_listened, started_at');
+      if (podcastErr) throw podcastErr;
+      const podcastTime = (podcastAgg || [])
+        .filter(s => s.started_at && new Date(s.started_at) >= new Date(startOfDayIso))
+        .reduce((acc, s) => acc + (s.seconds_listened || 0), 0);
+
+      this.dailyTime = Math.max(0, Math.floor(videoTime + podcastTime));
       this.lastUpdate = Date.now();
       this.notifyListeners();
       
@@ -56,7 +58,10 @@ export class DailyTimeTracker {
   }
 
   async addTime(seconds: number): Promise<void> {
-    this.dailyTime += seconds;
+    // Coerce to integer seconds to avoid floating accumulation errors
+    const inc = Math.max(0, Math.floor(seconds));
+    const prevTotal = this.dailyTime;
+    this.dailyTime += inc;
     this.lastUpdate = Date.now();
     this.notifyListeners();
     
@@ -65,12 +70,12 @@ export class DailyTimeTracker {
       const userStats = await DatabaseService.getUserStats();
       if (userStats) {
         await DatabaseService.updateUserStats({
-          totalSeconds: userStats.totalSeconds + seconds
+          totalSeconds: userStats.totalSeconds + inc
         });
+
+        // Update streak only when crossing the daily goal threshold
+        await streakTracker.achieveTodayIfCrossed(prevTotal, this.dailyTime, userStats.dailyGoalSeconds);
       }
-      
-      // Update streak when time is added
-      await streakTracker.updateStreak();
     } catch (error) {
       console.error('Failed to update user stats:', error);
     }

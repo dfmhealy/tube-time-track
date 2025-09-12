@@ -5,33 +5,40 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  Play, 
   Clock, 
-  Search, 
+  HeadphonesIcon, 
+  Play, 
   Plus, 
-  Minus,
-  HeadphonesIcon,
-  TrendingUp
+  Minus, 
+  Search, 
+  TrendingUp, 
+  ArrowUpDown, 
+  ChevronDown 
 } from 'lucide-react';
 import { cn, formatDuration } from '@/lib/utils';
 import { PodcastDatabaseService, type Podcast, type PodcastEpisode, type PodcastSubscription } from '@/lib/podcastDatabase';
 import { podcastApiService, type PodcastSearchResult } from '@/lib/podcastApi';
 import { PodcastPlayer } from '@/components/PodcastPlayer';
+import { usePlayerStore } from '@/store/playerStore';
 import { useToast } from '@/hooks/use-toast';
 
 export function Podcasts() {
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
   const [subscriptions, setSubscriptions] = useState<PodcastSubscription[]>([]);
   const [episodes, setEpisodes] = useState<PodcastEpisode[]>([]);
-  const [selectedPodcast, setSelectedPodcast] = useState<Podcast | null>(null);
+  const [episodesLoading, setEpisodesLoading] = useState(false);
   const [currentEpisode, setCurrentEpisode] = useState<PodcastEpisode | null>(null);
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [loadingMoreEpisodes, setLoadingMoreEpisodes] = useState(false);
+  const [hasMoreEpisodes, setHasMoreEpisodes] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [externalSearchQuery, setExternalSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PodcastSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [episodesLoading, setEpisodesLoading] = useState(false);
+  const [selectedPodcast, setSelectedPodcast] = useState<Podcast | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [importingPodcast, setImportingPodcast] = useState<string | null>(null);
+  const [manualRssUrl, setManualRssUrl] = useState('');
   const { toast } = useToast();
 
   // Load initial data
@@ -68,6 +75,8 @@ export function Podcasts() {
         try {
           const episodesData = await PodcastDatabaseService.getEpisodesForPodcast(selectedPodcast.id);
           setEpisodes(episodesData);
+          // Check if we have fewer episodes than expected (indicating more might be available)
+          setHasMoreEpisodes(episodesData.length >= 100 || selectedPodcast.total_episodes > episodesData.length);
         } catch (error) {
           console.error('Failed to load episodes:', error);
           toast({
@@ -83,6 +92,84 @@ export function Podcasts() {
       loadEpisodes();
     }
   }, [selectedPodcast, toast]);
+
+  // Sort episodes based on selected order
+  const sortedEpisodes = React.useMemo(() => {
+    const sorted = [...episodes];
+    if (sortOrder === 'newest') {
+      return sorted.sort((a, b) => {
+        // First sort by episode number (descending), then by publish date (newest first)
+        if (a.episode_number && b.episode_number) {
+          return b.episode_number - a.episode_number;
+        }
+        if (a.publish_date && b.publish_date) {
+          return new Date(b.publish_date).getTime() - new Date(a.publish_date).getTime();
+        }
+        return 0;
+      });
+    } else {
+      return sorted.sort((a, b) => {
+        // First sort by episode number (ascending), then by publish date (oldest first)
+        if (a.episode_number && b.episode_number) {
+          return a.episode_number - b.episode_number;
+        }
+        if (a.publish_date && b.publish_date) {
+          return new Date(a.publish_date).getTime() - new Date(b.publish_date).getTime();
+        }
+        return 0;
+      });
+    }
+  }, [episodes, sortOrder]);
+
+  const loadMoreEpisodes = async () => {
+    if (!selectedPodcast || loadingMoreEpisodes || !hasMoreEpisodes) return;
+    
+    setLoadingMoreEpisodes(true);
+    try {
+      // Try to fetch more episodes from the RSS feed
+      if (selectedPodcast.rss_url) {
+        const { episodes: newEpisodes } = await podcastApiService.getPodcastFromRSS(selectedPodcast.rss_url);
+        
+        // Filter out episodes we already have
+        const existingEpisodeUrls = new Set(episodes.map(ep => ep.audio_url));
+        const uniqueNewEpisodes = newEpisodes.filter(ep => !existingEpisodeUrls.has(ep.audio_url));
+        
+        if (uniqueNewEpisodes.length > 0) {
+          // Import new episodes to database
+          const episodesToImport = uniqueNewEpisodes.slice(0, 25).map(ep => ({
+            ...ep,
+            podcast_id: selectedPodcast.id
+          }));
+          
+          await PodcastDatabaseService.createEpisodes(episodesToImport);
+          
+          // Refresh episodes list
+          const updatedEpisodes = await PodcastDatabaseService.getEpisodesForPodcast(selectedPodcast.id);
+          setEpisodes(updatedEpisodes);
+          
+          toast({
+            title: "Episodes Updated",
+            description: `Added ${uniqueNewEpisodes.length} new episodes`,
+          });
+        } else {
+          setHasMoreEpisodes(false);
+          toast({
+            title: "No New Episodes",
+            description: "All available episodes are already loaded",
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load more episodes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load more episodes",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingMoreEpisodes(false);
+    }
+  };
 
   const handleSubscribe = async (podcast: Podcast) => {
     try {
@@ -413,6 +500,66 @@ export function Podcasts() {
                     )}
                   </Button>
                 </div>
+
+                {/* Manual RSS Input */}
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Or paste an RSS feed URL..."
+                    value={manualRssUrl}
+                    onChange={(e) => setManualRssUrl(e.target.value)}
+                    className="flex-1 bg-white/10 border-white/20 text-white placeholder:text-white/60"
+                  />
+                  <Button
+                    onClick={async () => {
+                      try {
+                        setSearchLoading(true);
+                        const { podcast, episodes } = await podcastApiService.getPodcastFromRSS(manualRssUrl);
+                        // Import directly into the database
+                        const created = await PodcastDatabaseService.importPodcastWithEpisodes(
+                          {
+                            title: podcast.title || 'Unknown Podcast',
+                            description: podcast.description || '',
+                            creator: podcast.creator || 'Unknown Creator',
+                            thumbnail_url: podcast.thumbnail_url || '',
+                            rss_url: podcast.rss_url || manualRssUrl,
+                            website_url: podcast.website_url || '',
+                            language: podcast.language || 'en',
+                            category: podcast.category || '',
+                            total_episodes: episodes.length,
+                          },
+                          episodes
+                        );
+                        // Refresh subscriptions list
+                        const updatedSubscriptions = await PodcastDatabaseService.getUserSubscriptions();
+                        setSubscriptions(updatedSubscriptions);
+                        // Clear input
+                        setManualRssUrl('');
+                        toast({ title: 'Podcast Added', description: created.podcast.title });
+                      } catch (error) {
+                        console.error('Manual RSS import error:', error);
+                        toast({
+                          title: "Import Error",
+                          description: "Failed to import podcast from RSS URL",
+                          variant: "destructive"
+                        });
+                      } finally {
+                        setSearchLoading(false);
+                      }
+                    }}
+                    disabled={!manualRssUrl.trim() || searchLoading}
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    {searchLoading ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add via RSS
+                      </>
+                    )}
+                  </Button>
+                </div>
+
                 
                 {searchResults.length > 0 && (
                   <p className="text-white/70 text-sm text-center">
@@ -583,14 +730,28 @@ export function Podcasts() {
                         {selectedPodcast.description}
                       </p>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedPodcast(null)}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      ✕
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {/* Sort Options */}
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <ArrowUpDown className="w-4 h-4 mr-1" />
+                          {sortOrder === 'newest' ? 'Newest First' : 'Oldest First'}
+                        </Button>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedPodcast(null)}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        ✕
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="overflow-y-auto max-h-96">
@@ -600,16 +761,48 @@ export function Podcasts() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {episodes.map((episode) => (
+                      {sortedEpisodes.map((episode) => (
                         <Card key={episode.id} className="p-4 hover:bg-muted/50 transition-colors">
                           <div className="flex items-start gap-4">
-                            <Button
-                              onClick={() => setCurrentEpisode(episode)}
-                              size="sm"
-                              className="mt-1 bg-primary hover:bg-primary/90"
-                            >
-                              <Play className="w-3 h-3" />
-                            </Button>
+                            <div className="flex flex-col gap-2 mt-1">
+                              <Button
+                                onClick={() => setCurrentEpisode(episode)}
+                                size="sm"
+                                className="bg-primary hover:bg-primary/90"
+                              >
+                                <Play className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const player = usePlayerStore.getState();
+                                  player.play({ type: 'podcast', id: episode.id });
+                                }}
+                              >
+                                Play Now
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const player = usePlayerStore.getState();
+                                  player.enqueueNext({ type: 'podcast', id: episode.id });
+                                }}
+                              >
+                                Play Next
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const player = usePlayerStore.getState();
+                                  player.enqueueLast({ type: 'podcast', id: episode.id });
+                                }}
+                              >
+                                Play Last
+                              </Button>
+                            </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
                                 <h4 className="font-medium line-clamp-2 flex-1">{episode.title}</h4>
@@ -641,6 +834,30 @@ export function Podcasts() {
                           </div>
                         </Card>
                       ))}
+                      
+                      {/* Load More Episodes Button */}
+                      {hasMoreEpisodes && (
+                        <div className="flex justify-center pt-4">
+                          <Button
+                            variant="outline"
+                            onClick={loadMoreEpisodes}
+                            disabled={loadingMoreEpisodes}
+                            className="w-full"
+                          >
+                            {loadingMoreEpisodes ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
+                                Loading More Episodes...
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="w-4 h-4 mr-2" />
+                                Load More Episodes
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -652,7 +869,24 @@ export function Podcasts() {
           {currentEpisode && (
             <PodcastPlayer
               episode={currentEpisode}
-              onClose={() => setCurrentEpisode(null)}
+              onClose={() => {
+                setCurrentEpisode(null);
+                // Refresh episodes to show updated completion status
+                if (selectedPodcast) {
+                  PodcastDatabaseService.getEpisodesForPodcast(selectedPodcast.id)
+                    .then(setEpisodes)
+                    .catch(console.error);
+                }
+              }}
+              onEpisodeUpdate={(updatedEpisode) => {
+                // Update the episode in the local episodes list while maintaining order
+                setEpisodes(prevEpisodes => {
+                  const updatedEpisodes = prevEpisodes.map(ep => 
+                    ep.id === updatedEpisode.id ? updatedEpisode : ep
+                  );
+                  return updatedEpisodes;
+                });
+              }}
             />
           )}
         </div>

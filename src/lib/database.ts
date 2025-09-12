@@ -83,6 +83,19 @@ export const DatabaseService = {
     };
   },
 
+  async updateVideoProgress(videoId: string, lastPositionSeconds: number): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { error } = await supabase
+      .from('videos')
+      .update({ last_position_seconds: lastPositionSeconds } as any)
+      .eq('id', videoId)
+      .eq('user_id', user.id);
+
+    if (error) throw error;
+  },
+
   async getVideo(id: string): Promise<Video | undefined> {
     const { data, error } = await supabase
       .from('videos')
@@ -290,7 +303,7 @@ export const DatabaseService = {
 
     const { error } = await supabase
       .from('videos')
-      .update({ is_completed: true })
+      .update({ is_completed: true } as any)
       .eq('id', videoId)
       .eq('user_id', user.id);
     
@@ -365,7 +378,7 @@ export const DatabaseService = {
     });
     
     // Create array with all 7 days, filling in zeros
-    const result = [];
+    const result = [] as { date: string; seconds: number }[];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
@@ -375,8 +388,55 @@ export const DatabaseService = {
         seconds: dailyTotals[dateStr] || 0
       });
     }
-    
     return result;
+  },
+
+  // Video channel subscriptions (using channel title as the key until channel IDs are available)
+  async subscribeToChannel(channelTitle: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { error } = await supabase
+      .from('video_channel_subscriptions')
+      .insert({ user_id: user.id, channel_title: channelTitle } as any);
+    if (error) throw error;
+  },
+
+  async unsubscribeFromChannel(channelTitle: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { error } = await supabase
+      .from('video_channel_subscriptions')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('channel_title', channelTitle);
+    if (error) throw error;
+  },
+
+  async isSubscribedToChannel(channelTitle: string): Promise<boolean> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+    const { data, error } = await supabase
+      .from('video_channel_subscriptions')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('channel_title', channelTitle)
+      .maybeSingle();
+    if (error && (error as any).code !== 'PGRST116') return false;
+    return !!data;
+  },
+
+  async getUserChannelSubscriptions(): Promise<string[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const { data, error } = await supabase
+      .from('video_channel_subscriptions')
+      .select('channel_title')
+      .eq('user_id', user.id)
+      .order('channel_title');
+    if (error || !data) return [];
+    return data.map((r: any) => r.channel_title as string);
   },
 
   // Analytics  

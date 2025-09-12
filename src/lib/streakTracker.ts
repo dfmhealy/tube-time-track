@@ -3,12 +3,22 @@ import { DatabaseService } from './database';
 
 export class StreakTracker {
   private static instance: StreakTracker;
-  
+
   static getInstance(): StreakTracker {
     if (!StreakTracker.instance) {
       StreakTracker.instance = new StreakTracker();
     }
     return StreakTracker.instance;
+  }
+
+  /**
+   * Only increment streak when the daily total crosses the goal threshold.
+   * This should be called with the previous total, new total, and goal.
+   */
+  async achieveTodayIfCrossed(prevTotal: number, newTotal: number, goal: number): Promise<void> {
+    if (prevTotal < goal && newTotal >= goal) {
+      await this.updateStreak();
+    }
   }
 
   /**
@@ -36,31 +46,19 @@ export class StreakTracker {
 
       // Check if user achieved daily goal today
       const achievedGoalToday = todayProgress >= dailyGoalSeconds;
-      
-      // Check if this is the first activity today
-      const isFirstActivityToday = !lastWatchedAt || 
-        lastWatchedAt.toDateString() !== today.toDateString();
 
-      if (achievedGoalToday && isFirstActivityToday) {
-        // Check if user achieved goal yesterday to continue streak
+      // If goal achieved, update streak based on whether yesterday's goal was achieved
+      if (achievedGoalToday) {
         const achievedGoalYesterday = yesterdayProgress >= dailyGoalSeconds;
-        
         if (newStreakDays === 0 || achievedGoalYesterday) {
-          // Start new streak or continue existing streak
           newStreakDays += 1;
         } else {
-          // Reset streak if yesterday's goal wasn't met
           newStreakDays = 1;
         }
 
-        // Update user stats with new streak and last watched date
+        // Persist that today's goal was achieved
         await DatabaseService.updateUserStats({
           streakDays: newStreakDays,
-          lastWatchedAt: today.toISOString()
-        });
-      } else if (isFirstActivityToday && !achievedGoalToday) {
-        // Update last watched date even if goal not achieved
-        await DatabaseService.updateUserStats({
           lastWatchedAt: today.toISOString()
         });
       }
@@ -82,7 +80,7 @@ export class StreakTracker {
 
       const startOfDay = new Date(date);
       startOfDay.setHours(0, 0, 0, 0);
-      
+
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
 
@@ -113,10 +111,10 @@ export class StreakTracker {
       }
 
       // Calculate total seconds for the day
-      const videoSeconds = (videoSessions || []).reduce((total, session) => 
+      const videoSeconds = (videoSessions || []).reduce((total, session) =>
         total + (session.seconds_watched || 0), 0);
-      
-      const podcastSeconds = (podcastSessions || []).reduce((total, session) => 
+
+      const podcastSeconds = (podcastSessions || []).reduce((total, session) =>
         total + (session.seconds_listened || 0), 0);
 
       return videoSeconds + podcastSeconds;
@@ -136,7 +134,7 @@ export class StreakTracker {
 
       const today = new Date();
       const todayProgress = await this.getDailyProgress(today);
-      
+
       return todayProgress >= userStats.dailyGoalSeconds;
     } catch (error) {
       console.error('Error checking daily goal:', error);
