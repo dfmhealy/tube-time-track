@@ -44,6 +44,7 @@ export const usePodcastPlayer = ({
   const progressIntervalRef = useRef<number | null>(null);
   const isSeeking = useRef(false);
   const lastSeekTime = useRef(0);
+  const initialPositionApplied = useRef(false);
   const { toast } = useToast();
 
   // Centralized seek handler
@@ -115,11 +116,22 @@ export const usePodcastPlayer = ({
   useEffect(() => {
     if (!currentPodcast || !audioRef.current) return;
 
+    // Reset the flag when a new podcast is loaded
+    initialPositionApplied.current = false;
+
     const ep = currentPodcast;
     const audio = audioRef.current;
 
     const tryLoadAndAutoplayAudio = async (url: string, initialPosition: number) => {
+      // Set duration first if available
+      if (ep.durationSeconds > 0) {
+        setLocalDuration(ep.durationSeconds);
+      }
+
+      // Apply initial position
       audio.currentTime = initialPosition;
+      initialPositionApplied.current = true;
+      
       audio.playbackRate = playbackRate;
       audio.volume = muted ? 0 : volume;
 
@@ -150,6 +162,12 @@ export const usePodcastPlayer = ({
             audio.addEventListener('error', onError);
             if (audio.readyState >= 3) onCanPlay();
           });
+
+          // Re-apply position after load
+          if (!initialPositionApplied.current) {
+            audio.currentTime = initialPosition;
+            initialPositionApplied.current = true;
+          }
 
           if (usePlayerStore.getState().isPlaying) {
             await audio.play();
@@ -216,16 +234,31 @@ export const usePodcastPlayer = ({
     const handleTimeUpdate = () => {
       if (!isSeeking.current) {
         setLocalPosition(Math.floor(audio.currentTime));
+        usePlayerStore.getState().setPosition(Math.floor(audio.currentTime));
+      }
+    };
+
+    const handleLoadedMetadata = () => {
+      if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
+        setLocalDuration(audio.duration);
+      } else if (ep.durationSeconds > 0) {
+        setLocalDuration(ep.durationSeconds);
+      }
+      
+      // Re-apply position after metadata is loaded
+      if (!initialPositionApplied.current && localPosition > 0) {
+        audio.currentTime = localPosition;
+        initialPositionApplied.current = true;
       }
     };
 
     audio.addEventListener('ended', handleAudioEnded);
-    audio.addEventListener('loadedmetadata', () => setLocalDuration(audio.duration));
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('timeupdate', handleTimeUpdate);
 
     return () => {
       audio.removeEventListener('ended', handleAudioEnded);
-      audio.removeEventListener('loadedmetadata', () => setLocalDuration(audio.duration));
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       setPodcastSession(null);
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
@@ -278,9 +311,17 @@ export const usePodcastPlayer = ({
       const currentPos = Math.floor(audio.currentTime);
       const currentDur = Math.floor(audio.duration);
       
-      setLocalPosition(currentPos);
-      usePlayerStore.getState().setPosition(currentPos);
-      setLocalDuration(currentDur);
+      // Only update if we have valid values
+      if (currentPos >= 0) {
+        setLocalPosition(currentPos);
+        usePlayerStore.getState().setPosition(currentPos);
+      }
+      
+      if (currentDur > 0) {
+        setLocalDuration(currentDur);
+      } else if (currentPodcast.durationSeconds > 0) {
+        setLocalDuration(currentPodcast.durationSeconds);
+      }
 
       await dailyTimeTracker.addTime(1);
       try {

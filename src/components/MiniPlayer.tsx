@@ -178,15 +178,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
   return (
     <div className={cn(
       "fixed bottom-0 inset-x-0 z-50 p-3 pointer-events-none transition-all duration-300",
-      isMinimized ? "md:bottom-4 md:right-4 md:left-auto md:w-80" : "w-full",
-      isPlayerViewOpen && "hidden"
+      isMinimized ? "md:bottom-0 md:right-0 md:left-0 md:w-full" : "w-full"
     )}>
       <Card className={cn(
         "mx-auto w-full p-3 shadow-xl bg-background/95 backdrop-blur pointer-events-auto flex items-center gap-3",
-        isMinimized ? "max-w-xs" : "max-w-3xl"
+        isMinimized ? "max-w-full" : "max-w-3xl"
       )}>
         {/* Thumbnail / Video Container */}
-        <div className="relative w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-muted">
+        <div className="relative w-16 h-16 flex-shrink-0 rounded overflow-hidden bg-muted">
           {isVideo ? (
             <div
               ref={youtubeIframeRef}
@@ -208,7 +207,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
             {isPodcast ? current?.creator : current?.channelTitle}
           </div>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs text-muted-foreground min-w-0">
+            <span className="text-xs text-muted-foreground min-w-[40px] text-right">
               {formatDuration(localPosition)}
             </span>
             <Slider
@@ -218,7 +217,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
               onValueChange={onSeek}
               className="flex-1"
             />
-            <span className="text-xs text-muted-foreground min-w-0">
+            <span className="text-xs text-muted-foreground min-w-[40px]">
               {formatDuration(localDuration)}
             </span>
           </div>

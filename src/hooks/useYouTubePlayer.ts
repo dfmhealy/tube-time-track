@@ -44,6 +44,7 @@ export const useYouTubePlayer = ({
   const progressIntervalRef = useRef<number | null>(null);
   const isSeeking = useRef(false);
   const lastSeekTime = useRef(0);
+  const initialPositionApplied = useRef(false);
   const { toast } = useToast();
 
   // --- Media Session API ---
@@ -135,12 +136,16 @@ export const useYouTubePlayer = ({
         }
         ytPlayerInstance.current = null;
       }
+      initialPositionApplied.current = false;
       return;
     }
 
     const videoItem = currentVideo;
     const playerContainer = youtubeIframeRef.current;
     let playerElementId = `youtube-player-${videoItem.id}`;
+
+    // Reset the flag when a new video is loaded
+    initialPositionApplied.current = false;
 
     const onYouTubeIframeAPIReady = () => {
       let existingIframe = document.getElementById(playerElementId) as HTMLIFrameElement;
@@ -152,16 +157,27 @@ export const useYouTubePlayer = ({
         
         // Re-sync player state
         if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
+          // Set duration first if available
+          if (typeof ytPlayerInstance.current.getDuration === 'function') {
+            const duration = ytPlayerInstance.current.getDuration();
+            if (duration && duration > 0) {
+              setLocalDuration(duration);
+            } else {
+              // Fallback to the provided duration
+              setLocalDuration(videoItem.durationSeconds);
+            }
+          }
+
+          // Apply initial position
           ytPlayerInstance.current.seekTo(localPosition, true);
+          initialPositionApplied.current = true;
+          
           ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
           ytPlayerInstance.current.setPlaybackRate(playbackRate);
           if (isPlaying) {
             try { ytPlayerInstance.current.playVideo(); } catch (e) { console.error("YT play failed after move:", e); }
           } else {
             ytPlayerInstance.current.pauseVideo();
-          }
-          if (typeof ytPlayerInstance.current.getDuration === 'function') {
-            setLocalDuration(ytPlayerInstance.current.getDuration());
           }
         }
       } else if (!existingIframe) {
@@ -181,12 +197,27 @@ export const useYouTubePlayer = ({
             iv_load_policy: 3,
             fs: 1, // Enable fullscreen
             enablejsapi: 1,
+            start: Math.floor(localPosition), // Start at the saved position
           },
           events: {
             onReady: (event: any) => {
               ytPlayerInstance.current = event.target;
               if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
+                // Set duration first if available
+                if (typeof ytPlayerInstance.current.getDuration === 'function') {
+                  const duration = ytPlayerInstance.current.getDuration();
+                  if (duration && duration > 0) {
+                    setLocalDuration(duration);
+                  } else {
+                    // Fallback to the provided duration
+                    setLocalDuration(videoItem.durationSeconds);
+                  }
+                }
+
+                // Apply initial position
                 ytPlayerInstance.current.seekTo(localPosition, true);
+                initialPositionApplied.current = true;
+                
                 ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
                 ytPlayerInstance.current.setPlaybackRate(playbackRate);
                 
@@ -198,9 +229,6 @@ export const useYouTubePlayer = ({
                     toast({ title: "Autoplay Blocked", description: "Autoplay blocked. Tap play to watch.", variant: "default" });
                     pause();
                   }
-                }
-                if (typeof ytPlayerInstance.current.getDuration === 'function') {
-                  setLocalDuration(ytPlayerInstance.current.getDuration());
                 }
               }
             },
@@ -224,21 +252,38 @@ export const useYouTubePlayer = ({
         console.log(`Created new YouTube player for ${videoItem.youtubeId}`);
       } else {
         if (ytPlayerInstance.current && typeof ytPlayerInstance.current.getVideoData === 'function' && ytPlayerInstance.current.getVideoData().video_id !== videoItem.youtubeId) {
-          ytPlayerInstance.current.loadVideoById(videoItem.youtubeId, localPosition);
-          console.log(`Loaded new video ${videoItem.youtubeId} into existing player`);
+          ytPlayerInstance.current.loadVideoById({
+            videoId: videoItem.youtubeId,
+            startSeconds: localPosition
+          });
+          console.log(`Loaded new video ${videoItem.youtubeId} into existing player at position ${localPosition}`);
+          initialPositionApplied.current = true;
         }
         
         if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
-          ytPlayerInstance.current.seekTo(localPosition, true);
+          // Set duration first if available
+          if (typeof ytPlayerInstance.current.getDuration === 'function') {
+            const duration = ytPlayerInstance.current.getDuration();
+            if (duration && duration > 0) {
+              setLocalDuration(duration);
+            } else {
+              // Fallback to the provided duration
+              setLocalDuration(videoItem.durationSeconds);
+            }
+          }
+
+          // Apply initial position if not already applied
+          if (!initialPositionApplied.current) {
+            ytPlayerInstance.current.seekTo(localPosition, true);
+            initialPositionApplied.current = true;
+          }
+          
           ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
           ytPlayerInstance.current.setPlaybackRate(playbackRate);
           if (isPlaying) {
             try { ytPlayerInstance.current.playVideo(); } catch (e) { console.error("YT play failed on sync:", e); }
           } else {
             ytPlayerInstance.current.pauseVideo();
-          }
-          if (typeof ytPlayerInstance.current.getDuration === 'function') {
-            setLocalDuration(ytPlayerInstance.current.getDuration());
           }
         }
       }
@@ -305,7 +350,7 @@ export const useYouTubePlayer = ({
 
   // --- Progress Tracking and Persistence (1-second interval) ---
   useEffect(() => {
-    if (!currentVideo || !ytPlayerInstance.current || typeof ytPlayerInstance.current.getCurrentTime !== 'function' || typeof ytPlayerInstance.current.getDuration !== 'function' || typeof ytPlayerInstance.current.getPlayerState !== 'function') {
+    if (!currentVideo || !ytPlayerInstance.current) {
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
       return;
@@ -315,17 +360,29 @@ export const useYouTubePlayer = ({
 
     progressIntervalRef.current = window.setInterval(async () => {
       const currentYTPlayer = ytPlayerInstance.current;
-      if (!currentYTPlayer || typeof currentYTPlayer.getCurrentTime !== 'function' || currentYTPlayer.getPlayerState() !== (window as any).YT.PlayerState.PLAYING) return;
+      if (!currentYTPlayer || typeof currentYTPlayer.getCurrentTime !== 'function') return;
 
       // Don't update position if we're currently seeking
       if (isSeeking.current && Date.now() - lastSeekTime.current < 1000) return;
 
+      // Only update if player is actually playing
+      const playerState = currentYTPlayer.getPlayerState?.();
+      const isCurrentlyPlaying = playerState === (window as any).YT.PlayerState.PLAYING;
+      
+      if (!isCurrentlyPlaying) return;
+
       const currentPos = Math.floor(currentYTPlayer.getCurrentTime());
       const currentDur = Math.floor(currentYTPlayer.getDuration());
       
-      setLocalPosition(currentPos);
-      usePlayerStore.getState().setPosition(currentPos);
-      setLocalDuration(currentDur);
+      // Only update if we have valid values
+      if (currentPos >= 0) {
+        setLocalPosition(currentPos);
+        usePlayerStore.getState().setPosition(currentPos);
+      }
+      
+      if (currentDur > 0) {
+        setLocalDuration(currentDur);
+      }
 
       await dailyTimeTracker.addTime(1);
       try {

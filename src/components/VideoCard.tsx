@@ -41,6 +41,12 @@ export function VideoCard({ video, onDelete, className }: VideoCardProps) {
   const isCompleted = video.isCompleted || actualProgressPercent >= 90;
 
   const handlePlay = () => {
+    // Clear current player first to avoid conflicts
+    if (player.current) {
+      player.clearCurrent();
+    }
+    
+    // Then play the new video
     player.play({
       type: 'video',
       id: video.id,
@@ -220,4 +226,4 @@ export function VideoCard({ video, onDelete, className }: VideoCardProps) {
       </CardContent>
     </Card>
   );
-}
+};
