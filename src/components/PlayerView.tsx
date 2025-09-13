@@ -3,12 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Card } from '@/components/ui/card';
 import { Play, Pause, Minimize2, Maximize2, Volume2, VolumeX, Settings, X, SkipForward, SkipBack } from 'lucide-react';
-import { usePlayerStore } from '@/store/playerStore'; // Corrected import
+import { usePlayerStore } from '@/store/playerStore';
 import { DatabaseService } from '@/lib/database';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 import { formatDuration } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useYouTubePlayer } from '@/hooks/useYouTubePlayer'; // Import useYouTubePlayer
+import { useYouTubePlayer } from '@/hooks/useYouTubePlayer';
 
 interface PlayerViewProps {
   youtubeIframeRef: React.RefObject<HTMLDivElement>;
@@ -41,7 +41,7 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
   const video = current?.type === 'video' ? current : null;
 
   // Use the YouTube player hook
-  const { ytPlayerInstance, videoSessionIdRef } = useYouTubePlayer({
+  const { ytPlayerInstance, videoSessionIdRef, handleSeek } = useYouTubePlayer({
     currentVideo: video ? { id: video.id, youtubeId: video.youtubeId!, durationSeconds: video.durationSeconds } : null,
     youtubeIframeRef,
     isPlaying,
@@ -57,29 +57,14 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
     clearCurrent,
   });
 
-  // Effect: Update playerVars for fullscreen when PlayerView is active
-  useEffect(() => {
-    if (ytPlayerInstance.current && typeof ytPlayerInstance.current.setPlaybackQuality === 'function') {
-      // Ensure fullscreen is enabled when in PlayerView
-      // Note: playerVars can't be changed after player creation, but we can ensure the iframe is correctly configured
-      // The `useYouTubePlayer` hook now handles moving the iframe and re-syncing state.
-      // For fullscreen, the iframe itself needs `allowfullscreen` attribute, which is handled by the API.
-      // The `fs: 1` playerVar is set during player creation in useYouTubePlayer.
-    }
-  }, [ytPlayerInstance.current]);
-
-  const handleSeek = useCallback((vals: number[]) => {
+  const handleSeekSlider = useCallback((vals: number[]) => {
     const newPos = vals[0];
     if (!Number.isFinite(newPos)) {
       console.warn('Attempted to seek to a non-finite value:', newPos);
       return;
     }
-    setLocalPosition(newPos);
-    setGlobalPosition(newPos);
-    if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
-      ytPlayerInstance.current.seekTo(newPos, true);
-    }
-  }, [setLocalPosition, setGlobalPosition, ytPlayerInstance.current]);
+    handleSeek(newPos);
+  }, [handleSeek]);
 
   const handleVolumeChange = useCallback((vals: number[]) => {
     const newVol = vals[0];
@@ -87,7 +72,7 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
     if (ytPlayerInstance.current && typeof ytPlayerInstance.current.setVolume === 'function') {
       ytPlayerInstance.current.setVolume(newVol * 100);
     }
-  }, []);
+  }, [setGlobalVolume, ytPlayerInstance]);
 
   const handleToggleMute = useCallback(() => {
     setGlobalMuted(!muted);
@@ -98,18 +83,7 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
         if (typeof ytPlayerInstance.current.mute === 'function') ytPlayerInstance.current.mute();
       }
     }
-  }, [muted]);
-
-  const handleEnded = async () => {
-    if (!video) return;
-    try {
-      await DatabaseService.markVideoAsCompleted(video.id);
-      await DatabaseService.updateVideoProgress(video.id, localDuration); // Ensure final position is saved
-    } catch (e) {
-      console.error("Failed to mark video as completed:", e);
-    }
-    next(); // Play next item in queue
-  };
+  }, [muted, setGlobalMuted, ytPlayerInstance]);
 
   const handleMinimize = useCallback(() => {
     minimizeVideo();
@@ -118,10 +92,19 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
   const handleClose = useCallback(() => {
     if (ytPlayerInstance.current) {
       if (typeof ytPlayerInstance.current.stopVideo === 'function') ytPlayerInstance.current.stopVideo();
-      if (typeof ytPlayerInstance.current.destroy === 'function') ytPlayerInstance.current.destroy(); // Destroy player when closing completely
     }
     clearCurrent();
-  }, [clearCurrent]);
+  }, [clearCurrent, ytPlayerInstance]);
+
+  const handleSkipBack = useCallback(() => {
+    const newTime = Math.max(0, localPosition - 10);
+    handleSeek(newTime);
+  }, [localPosition, handleSeek]);
+
+  const handleSkipForward = useCallback(() => {
+    const newTime = Math.min(localDuration, localPosition + 10);
+    handleSeek(newTime);
+  }, [localPosition, localDuration, handleSeek]);
 
   if (!video) return null;
 
@@ -149,41 +132,55 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
             {video.title}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => ytPlayerInstance.current && typeof ytPlayerInstance.current.requestFullscreen === 'function' && ytPlayerInstance.current.requestFullscreen()}>
+            <Button variant="ghost" size="icon" onClick={() => {
+              if (ytPlayerInstance.current && typeof ytPlayerInstance.current.getIframe === 'function') {
+                const iframe = ytPlayerInstance.current.getIframe();
+                if (iframe && iframe.requestFullscreen) {
+                  iframe.requestFullscreen();
+                }
+              }
+            }}>
               <Maximize2 className="h-5 w-5" />
             </Button>
-            {/* Add more settings like captions here */}
             <Button variant="ghost" size="icon">
               <Settings className="h-5 w-5" />
             </Button>
           </div>
         </div>
 
+        {/* Progress Bar */}
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-muted-foreground min-w-0">
+            {formatDuration(localPosition)}
+          </span>
+          <Slider
+            value={[localPosition]}
+            max={Math.max(1, localDuration)}
+            step={1}
+            onValueChange={handleSeekSlider}
+            className="flex-1"
+          />
+          <span className="text-sm text-muted-foreground min-w-0">
+            {formatDuration(localDuration)}
+          </span>
+        </div>
+
         {/* Playback Controls */}
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={prev}>
+        <div className="flex items-center justify-center gap-4">
+          <Button variant="ghost" size="icon" onClick={handleSkipBack}>
             <SkipBack className="h-6 w-6" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={isPlaying ? pause : resume}>
+          <Button variant="ghost" size="icon" onClick={isPlaying ? pause : resume} className="h-12 w-12">
             {isPlaying ? <Pause className="h-8 w-8" /> : <Play className="h-8 w-8" />}
           </Button>
-          <Button variant="ghost" size="icon" onClick={next}>
+          <Button variant="ghost" size="icon" onClick={handleSkipForward}>
+            <SkipForward className="h-6 w-6" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={next} className="ml-4">
             <SkipForward className="h-6 w-6" />
           </Button>
 
-          <div className="flex-1 flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">{formatDuration(localPosition)}</span>
-            <Slider
-              value={[localPosition]}
-              max={Math.max(1, localDuration)}
-              step={1}
-              onValueChange={handleSeek}
-              className="w-full"
-            />
-            <span className="text-sm text-muted-foreground">{formatDuration(localDuration)}</span>
-          </div>
-
-          <div className="flex items-center gap-2 w-32">
+          <div className="flex items-center gap-2 ml-8 w-32">
             <Button variant="ghost" size="icon" onClick={handleToggleMute}>
               {muted || volume === 0 ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
             </Button>

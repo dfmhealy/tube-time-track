@@ -10,7 +10,7 @@ interface UseYouTubePlayerProps {
     youtubeId: string;
     durationSeconds: number;
   } | null;
-  youtubeIframeRef: React.RefObject<HTMLDivElement>; // This is the container div
+  youtubeIframeRef: React.RefObject<HTMLDivElement>;
   isPlaying: boolean;
   volume: number;
   muted: boolean;
@@ -39,9 +39,11 @@ export const useYouTubePlayer = ({
   next,
   clearCurrent,
 }: UseYouTubePlayerProps) => {
-  const ytPlayerInstance = useRef<any>(null); // Reference to the actual YouTube player object
+  const ytPlayerInstance = useRef<any>(null);
   const videoSessionIdRef = useRef<string | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
+  const isSeeking = useRef(false);
+  const lastSeekTime = useRef(0);
   const { toast } = useToast();
 
   // --- Media Session API ---
@@ -68,14 +70,13 @@ export const useYouTubePlayer = ({
     navigator.mediaSession.setActionHandler('pause', () => pause());
     navigator.mediaSession.setActionHandler('nexttrack', () => next());
     navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-      const seekTime = playerStore.positionSeconds - (details.seekOffset || 10);
-      playerStore.setPosition(Math.max(0, seekTime));
-      if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') ytPlayerInstance.current.seekTo(Math.max(0, seekTime), true);
+      const seekTime = Math.max(0, playerStore.positionSeconds - (details.seekOffset || 10));
+      handleSeek(seekTime);
     });
     navigator.mediaSession.setActionHandler('seekforward', (details) => {
-      const seekTime = playerStore.positionSeconds + (details.seekOffset || 10);
-      playerStore.setPosition(Math.min(currentVideo.durationSeconds, seekTime));
-      if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') ytPlayerInstance.current.seekTo(Math.min(currentVideo.durationSeconds, seekTime), true);
+      const currentDuration = ytPlayerInstance.current?.getDuration?.() || currentVideo.durationSeconds;
+      const seekTime = Math.min(currentDuration, playerStore.positionSeconds + (details.seekOffset || 10));
+      handleSeek(seekTime);
     });
     navigator.mediaSession.setActionHandler('stop', () => clearCurrent());
 
@@ -91,6 +92,28 @@ export const useYouTubePlayer = ({
     };
   }, [currentVideo, isPlaying, resume, pause, next, clearCurrent]);
 
+  // Centralized seek handler
+  const handleSeek = useCallback((seekTime: number) => {
+    if (!ytPlayerInstance.current || !currentVideo) return;
+    
+    const validSeekTime = Math.max(0, Math.min(seekTime, ytPlayerInstance.current.getDuration?.() || currentVideo.durationSeconds));
+    
+    isSeeking.current = true;
+    lastSeekTime.current = Date.now();
+    
+    setLocalPosition(validSeekTime);
+    usePlayerStore.getState().setPosition(validSeekTime);
+    
+    if (typeof ytPlayerInstance.current.seekTo === 'function') {
+      ytPlayerInstance.current.seekTo(validSeekTime, true);
+    }
+    
+    // Clear seeking flag after a short delay
+    setTimeout(() => {
+      isSeeking.current = false;
+    }, 500);
+  }, [currentVideo, setLocalPosition]);
+
   // Effect: Load YouTube API script
   useEffect(() => {
     if (!(window as any).YT && !document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
@@ -104,9 +127,12 @@ export const useYouTubePlayer = ({
   // Effect: Setup YouTube player and manage its lifecycle
   useEffect(() => {
     if (!currentVideo || !youtubeIframeRef.current) {
-      // If no current video or ref is gone, ensure player is stopped/destroyed
       if (ytPlayerInstance.current && typeof ytPlayerInstance.current.destroy === 'function') {
-        try { ytPlayerInstance.current.destroy(); } catch (e) { console.warn("Error destroying YT player:", e); }
+        try { 
+          ytPlayerInstance.current.destroy(); 
+        } catch (e) { 
+          console.warn("Error destroying YT player:", e); 
+        }
         ytPlayerInstance.current = null;
       }
       return;
@@ -114,17 +140,16 @@ export const useYouTubePlayer = ({
 
     const videoItem = currentVideo;
     const playerContainer = youtubeIframeRef.current;
-    let playerElementId = `youtube-player-${videoItem.id}`; // Unique ID for the iframe
+    let playerElementId = `youtube-player-${videoItem.id}`;
 
     const onYouTubeIframeAPIReady = () => {
-      // Check if an iframe with this ID already exists
       let existingIframe = document.getElementById(playerElementId) as HTMLIFrameElement;
 
       if (existingIframe && existingIframe.parentElement !== playerContainer) {
-        // If iframe exists but is in the wrong parent, move it
         playerContainer.appendChild(existingIframe);
         ytPlayerInstance.current = (window as any).YT.get(playerElementId);
         console.log(`Moved existing YouTube player for ${videoItem.youtubeId}`);
+        
         // Re-sync player state
         if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
           ytPlayerInstance.current.seekTo(localPosition, true);
@@ -140,22 +165,22 @@ export const useYouTubePlayer = ({
           }
         }
       } else if (!existingIframe) {
-        // Create a new div to hold the player, then create the player
         const playerDiv = document.createElement('div');
         playerDiv.id = playerElementId;
-        playerDiv.className = 'w-full h-full'; // Ensure it fills the container
+        playerDiv.className = 'w-full h-full';
         playerContainer.appendChild(playerDiv);
 
         ytPlayerInstance.current = new (window as any).YT.Player(playerElementId, {
           videoId: videoItem.youtubeId,
           playerVars: {
-            autoplay: 0, // We control autoplay via playVideo()
+            autoplay: 0,
             controls: 0,
             modestbranding: 1,
             rel: 0,
             showinfo: 0,
             iv_load_policy: 3,
-            fs: 0, // No fullscreen in mini-player by default, PlayerView will override
+            fs: 1, // Enable fullscreen
+            enablejsapi: 1,
           },
           events: {
             onReady: (event: any) => {
@@ -170,7 +195,7 @@ export const useYouTubePlayer = ({
                     ytPlayerInstance.current.playVideo();
                   } catch (e: any) {
                     console.error("YT Autoplay failed:", e);
-                    toast({ title: "Autoplay Blocked", description: "Autoplay blocked. Tap play to watch.", variant: "default" }); // Changed from "info" to "default"
+                    toast({ title: "Autoplay Blocked", description: "Autoplay blocked. Tap play to watch.", variant: "default" });
                     pause();
                   }
                 }
@@ -183,9 +208,9 @@ export const useYouTubePlayer = ({
               const YT = (window as any).YT;
               if (event.data === YT.PlayerState.ENDED) {
                 handleVideoEnded();
-              } else if (event.data === YT.PlayerState.PAUSED) {
+              } else if (event.data === YT.PlayerState.PAUSED && !isSeeking.current) {
                 pause();
-              } else if (event.data === YT.PlayerState.PLAYING) {
+              } else if (event.data === YT.PlayerState.PLAYING && !isSeeking.current) {
                 resume();
               }
             },
@@ -198,13 +223,11 @@ export const useYouTubePlayer = ({
         });
         console.log(`Created new YouTube player for ${videoItem.youtubeId}`);
       } else {
-        // Player already exists and is in the correct container, just update video if needed
-        // Guard getVideoData call
         if (ytPlayerInstance.current && typeof ytPlayerInstance.current.getVideoData === 'function' && ytPlayerInstance.current.getVideoData().video_id !== videoItem.youtubeId) {
           ytPlayerInstance.current.loadVideoById(videoItem.youtubeId, localPosition);
           console.log(`Loaded new video ${videoItem.youtubeId} into existing player`);
         }
-        // Ensure state is synced
+        
         if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
           ytPlayerInstance.current.seekTo(localPosition, true);
           ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
@@ -221,7 +244,7 @@ export const useYouTubePlayer = ({
       }
 
       // Start watch session if not already active for this video
-      if (!videoSessionIdRef.current || videoSessionIdRef.current.split('-')[0] !== videoItem.id) { // Simple check for video ID in session ID
+      if (!videoSessionIdRef.current || videoSessionIdRef.current.split('-')[0] !== videoItem.id) {
         (async () => {
           try {
             const s = await DatabaseService.startWatchSession(videoItem.id);
@@ -235,18 +258,13 @@ export const useYouTubePlayer = ({
       }
     };
 
-    // Wait for YouTube API to be ready
     if ((window as any).YT && (window as any).YT.Player) {
       onYouTubeIframeAPIReady();
     } else {
-      // If API not ready, set the global callback
       (window as any).onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
     }
 
     return () => {
-      // Cleanup: When component unmounts or currentVideo changes
-      // If the iframe is moved, we don't destroy the player.
-      // Only destroy if the current video is cleared completely.
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
     };
@@ -269,21 +287,21 @@ export const useYouTubePlayer = ({
         }
       } catch (e) { console.error("YT pause failed:", e); }
     }
-  }, [isPlaying, currentVideo, ytPlayerInstance.current]);
+  }, [isPlaying, currentVideo]);
 
   // Effect: Sync volume/mute to YouTube player
   useEffect(() => {
     if (ytPlayerInstance.current && typeof ytPlayerInstance.current.setVolume === 'function') {
       ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
     }
-  }, [volume, muted, ytPlayerInstance.current]);
+  }, [volume, muted]);
 
   // Effect: Sync playback rate to YouTube player
   useEffect(() => {
     if (ytPlayerInstance.current && typeof ytPlayerInstance.current.setPlaybackRate === 'function') {
       ytPlayerInstance.current.setPlaybackRate(playbackRate);
     }
-  }, [playbackRate, ytPlayerInstance.current]);
+  }, [playbackRate]);
 
   // --- Progress Tracking and Persistence (1-second interval) ---
   useEffect(() => {
@@ -298,6 +316,9 @@ export const useYouTubePlayer = ({
     progressIntervalRef.current = window.setInterval(async () => {
       const currentYTPlayer = ytPlayerInstance.current;
       if (!currentYTPlayer || typeof currentYTPlayer.getCurrentTime !== 'function' || currentYTPlayer.getPlayerState() !== (window as any).YT.PlayerState.PLAYING) return;
+
+      // Don't update position if we're currently seeking
+      if (isSeeking.current && Date.now() - lastSeekTime.current < 1000) return;
 
       const currentPos = Math.floor(currentYTPlayer.getCurrentTime());
       const currentDur = Math.floor(currentYTPlayer.getDuration());
@@ -366,7 +387,7 @@ export const useYouTubePlayer = ({
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [currentVideo?.id, videoSessionIdRef.current, ytPlayerInstance.current]);
+  }, [currentVideo?.id, videoSessionIdRef.current]);
 
   const handleVideoEnded = async () => {
     if (!currentVideo) return;
@@ -382,5 +403,5 @@ export const useYouTubePlayer = ({
     next();
   };
 
-  return { ytPlayerInstance, videoSessionIdRef };
+  return { ytPlayerInstance, videoSessionIdRef, handleSeek };
 };

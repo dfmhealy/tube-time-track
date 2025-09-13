@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { useAppStore } from '@/store/appStore';
 import { Navigation } from './Navigation';
+import { GlobalProgressBar } from './GlobalProgressBar';
 import { cn } from '@/lib/utils';
 
 interface LayoutProps {
@@ -33,6 +34,13 @@ export function Layout({ children, className }: LayoutProps) {
             <Navigation />
           </div>
         </header>
+
+        {/* Global Progress Bar */}
+        <div className="sticky top-16 z-30 bg-background/80 backdrop-blur-md border-b border-border/20">
+          <div className="container py-2">
+            <GlobalProgressBar compact />
+          </div>
+        </div>
 
         {/* Main content area */}
         <main className={cn(
