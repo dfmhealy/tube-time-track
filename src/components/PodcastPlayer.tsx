@@ -214,26 +214,29 @@ export function PodcastPlayer({ episode, onClose, onEpisodeUpdate }: PodcastPlay
   // Progress tracking with session listen time
   useEffect(() => {
     if (isPlaying && session) {
-      const startTime = Date.now();
-      let lastUpdate = startTime;
+      let lastUpdate = performance.now();
       
       progressIntervalRef.current = setInterval(async () => {
         if (audioRef.current) {
-          const now = Date.now();
-          const deltaSeconds = (now - lastUpdate) / 1000;
+          const now = performance.now();
+          const deltaMs = now - lastUpdate;
           
-          setSessionListenTime(prev => prev + deltaSeconds);
-          // Add time in whole seconds to avoid inflatable totals
-          if (deltaSeconds >= 1) {
-            await dailyTimeTracker.addTime(Math.floor(deltaSeconds));
+          // Only count time if delta is reasonable (between 0.5 and 2 seconds)
+          if (deltaMs >= 500 && deltaMs <= 2000) {
+            const deltaSeconds = deltaMs / 1000;
+            const playbackRate = Math.max(0.25, audioRef.current.playbackRate || 1);
+            const adjustedDelta = deltaSeconds * playbackRate; // Account for playback speed
+            
+            setSessionListenTime(prev => prev + adjustedDelta);
+            await dailyTimeTracker.addTime(adjustedDelta);
           }
           
-          const currentSeconds = Math.floor(audioRef.current.currentTime);
-          const duration = audioRef.current.duration;
+          const currentSeconds = Math.max(0, Math.floor(audioRef.current.currentTime || 0));
+          const duration = Math.max(0, audioRef.current.duration || episode.duration_seconds || 0);
           
-          // Check completion once when truly near the end
-          const remainingTime = duration - currentSeconds;
-          if (!markedCompleteRef.current && duration >= 120 && remainingTime <= 60) {
+          // Check completion (90% listened or 1 minute remaining)
+          const completionThreshold = Math.min(duration * 0.9, duration - 60);
+          if (!markedCompleteRef.current && duration >= 120 && currentSeconds >= completionThreshold) {
             try {
               await PodcastDatabaseService.markEpisodeAsCompleted(episode.id);
               // Update local episode state
@@ -248,11 +251,15 @@ export function PodcastPlayer({ episode, onClose, onEpisodeUpdate }: PodcastPlay
             }
           }
           
+          // Update session progress
           try {
             await PodcastDatabaseService.updateListenSession(session.id, {
               seconds_listened: currentSeconds,
               avg_playback_rate: playbackRate
             });
+            
+            // Update episode progress
+            await PodcastDatabaseService.updateEpisodeProgress(episode.id, currentSeconds);
           } catch (error) {
             console.error('Failed to update session:', error);
           }

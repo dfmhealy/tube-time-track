@@ -376,8 +376,10 @@ export function Home() {
                       const updatedVideos = videos.filter(v => v.id !== video.id);
                       setVideos(updatedVideos);
                       setRecentVideos(updatedVideos.slice(0, 4));
+                      toast({ title: 'Video removed', description: 'Video deleted from library' });
                     } catch (error) {
                       console.error('Failed to delete video:', error);
+                      toast({ title: 'Error', description: 'Failed to delete video', variant: 'destructive' });
                     }
                   }}
                   className="text-white/70 hover:text-white hover:bg-white/20"
@@ -385,10 +387,9 @@ export function Home() {
                   <Trash2 className="w-3 h-3" />
                 </Button>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
 
       {/* Quick Actions */}
       <div className="flex gap-4 justify-center pt-8">

@@ -62,7 +62,8 @@ function PlayerViewContent() {
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const visibilityRef = useRef(document.visibilityState === 'visible');
   const focusRef = useRef(document.hasFocus());
-  const lastTickRef = useRef<number | null>(null);
+  const lastTickRef = useRef<number>(performance.now());
+  const sessionStartTimeRef = useRef<number>(0);
 
   // Get daily goal (use dailyGoal in seconds)
   const dailyGoalSeconds = dailyGoal || 30 * 60; // Default to 30 minutes if not set
@@ -291,46 +292,81 @@ function PlayerViewContent() {
   
   useEffect(() => {
     if (!isPlayerReady) return;
+    
     const intervalId = setInterval(() => {
       if (!player || !currentVideo) return;
+      
       const playerState = player.getPlayerState();
-      const currentTime = player.getCurrentTime();
-      const duration = player.getDuration();
+      const currentTime = Math.max(0, player.getCurrentTime() || 0);
+      const duration = Math.max(0, player.getDuration() || 0);
       
       setCurrentTime(currentTime);
+      setDuration(duration);
       
-      // Check if video is nearly complete (1 minute or less remaining)
-      const remainingTime = duration - currentTime;
-      if (remainingTime <= 60 && !currentVideo.isCompleted) {
-        DatabaseService.markVideoAsCompleted(currentVideo.id).catch(console.error);
-        // Update local video state
-        currentVideo.isCompleted = true;
-      }
+      // Only track time when actually playing and visible
+      const isActivelyWatching = playerState === PlayerState.PLAYING && 
+                                visibilityRef.current && 
+                                focusRef.current;
       
-      const isTracking = playerState === PlayerState.PLAYING && visibilityRef.current && focusRef.current;
-      if (playerState === PlayerState.PLAYING && !activeWatchSession) {
-        startWatchSession();
-      }
-      if (isTracking) {
+      if (isActivelyWatching) {
+        // Start session if not already started
+        if (playerState === PlayerState.PLAYING && !activeWatchSession) {
+          startWatchSession();
+          sessionStartTimeRef.current = performance.now();
+        }
+        
+        // Calculate time delta more accurately
         const now = performance.now();
-        const lastTick = lastTickRef.current || now;
-        let deltaSec = (now - lastTick) / 1000;
-        if (deltaSec > 2) deltaSec = 1;
-        setTotalWatchedSeconds(prev => prev + deltaSec);
-        dailyTimeTracker.addTime(deltaSec);
+        const lastTick = lastTickRef.current;
+        const deltaMs = now - lastTick;
+        
+        // Only count time if delta is reasonable (between 0.5 and 2 seconds)
+        if (deltaMs >= 500 && deltaMs <= 2000) {
+          const deltaSec = deltaMs / 1000;
+          const playbackRate = Math.max(0.25, player.getPlaybackRate() || 1);
+          const adjustedDelta = deltaSec * playbackRate; // Account for playback speed
+          
+          setTotalWatchedSeconds(prev => prev + adjustedDelta);
+          dailyTimeTracker.addTime(adjustedDelta);
+        }
+        
         lastTickRef.current = now;
       } else {
-        lastTickRef.current = null;
+        // Reset tick reference when not actively watching
+        lastTickRef.current = performance.now();
+      }
+      
+      // Check completion status (90% watched or 1 minute remaining)
+      if (duration > 0 && currentTime > 0) {
+        const completionThreshold = Math.min(duration * 0.9, duration - 60);
+        if (currentTime >= completionThreshold && !currentVideo.isCompleted) {
+          DatabaseService.markVideoAsCompleted(currentVideo.id).catch(console.error);
+          // Update local video state
+          currentVideo.isCompleted = true;
+        }
+      }
+      
+      // Update video progress periodically
+      if (currentTime > 0 && currentTime !== (currentVideo.lastPositionSeconds || 0)) {
+        DatabaseService.updateVideoProgress(currentVideo.id, currentTime).catch(console.error);
       }
     }, 1000);
+    
     return () => clearInterval(intervalId);
   }, [player, isPlayerReady, activeWatchSession, startWatchSession, currentVideo]);
   
   useEffect(() => {
-    if (!activeWatchSession || totalWatchedSeconds < lastSavedTime + 10) return;
-    const newFlooredSeconds = Math.floor(totalWatchedSeconds);
-    updateWatchHistory(activeWatchSession, newFlooredSeconds, playbackRate);
-    setLastSavedTime(newFlooredSeconds);
+    // Save progress every 10 seconds or when significant change occurs
+    if (!activeWatchSession) return;
+    
+    const newFlooredSeconds = Math.max(0, Math.floor(totalWatchedSeconds));
+    const timeDifference = newFlooredSeconds - lastSavedTime;
+    
+    // Update if 10+ seconds have passed or if there's a significant jump
+    if (timeDifference >= 10 || (timeDifference >= 5 && newFlooredSeconds > 0)) {
+      updateWatchHistory(activeWatchSession, newFlooredSeconds, playbackRate);
+      setLastSavedTime(newFlooredSeconds);
+    }
   }, [activeWatchSession, totalWatchedSeconds, lastSavedTime, playbackRate, updateWatchHistory]);
   
   useEffect(() => {

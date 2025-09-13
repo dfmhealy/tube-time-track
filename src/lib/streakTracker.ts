@@ -16,6 +16,10 @@ export class StreakTracker {
    * This should be called with the previous total, new total, and goal.
    */
   async achieveTodayIfCrossed(prevTotal: number, newTotal: number, goal: number): Promise<void> {
+    // Validate inputs
+    if (goal <= 0 || newTotal < 0 || prevTotal < 0) return;
+    
+    // Only update streak when crossing the threshold for the first time today
     if (prevTotal < goal && newTotal >= goal) {
       await this.updateStreak();
     }
@@ -33,6 +37,8 @@ export class StreakTracker {
       if (!userStats) return 0;
 
       const dailyGoalSeconds = userStats.dailyGoalSeconds;
+      if (dailyGoalSeconds <= 0) return userStats.streakDays || 0;
+      
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
@@ -42,25 +48,43 @@ export class StreakTracker {
       const yesterdayProgress = await this.getDailyProgress(yesterday);
 
       let newStreakDays = userStats.streakDays || 0;
-      const lastWatchedAt = userStats.lastWatchedAt ? new Date(userStats.lastWatchedAt) : null;
 
       // Check if user achieved daily goal today
       const achievedGoalToday = todayProgress >= dailyGoalSeconds;
 
-      // If goal achieved, update streak based on whether yesterday's goal was achieved
+      // Only update streak if goal was actually achieved today
       if (achievedGoalToday) {
-        const achievedGoalYesterday = yesterdayProgress >= dailyGoalSeconds;
-        if (newStreakDays === 0 || achievedGoalYesterday) {
-          newStreakDays += 1;
-        } else {
+        // Check if this is a continuation of an existing streak
+        if (newStreakDays === 0) {
+          // Starting a new streak
           newStreakDays = 1;
+        } else {
+          // Check if yesterday's goal was achieved to continue streak
+          const achievedGoalYesterday = yesterdayProgress >= dailyGoalSeconds;
+          if (achievedGoalYesterday) {
+            newStreakDays += 1;
+          } else {
+            // Streak broken, start new one
+            newStreakDays = 1;
+          }
         }
 
-        // Persist that today's goal was achieved
-        await DatabaseService.updateUserStats({
-          streakDays: newStreakDays,
-          lastWatchedAt: today.toISOString()
-        });
+        // Check if we already updated the streak today to avoid double counting
+        const lastWatchedAt = userStats.lastWatchedAt ? new Date(userStats.lastWatchedAt) : null;
+        const todayStart = new Date(today);
+        todayStart.setHours(0, 0, 0, 0);
+        
+        const shouldUpdateStreak = !lastWatchedAt || lastWatchedAt < todayStart;
+        
+        if (shouldUpdateStreak) {
+          await DatabaseService.updateUserStats({
+            streakDays: newStreakDays,
+            lastWatchedAt: today.toISOString()
+          });
+        } else {
+          // Already updated today, just return current streak
+          return newStreakDays;
+        }
       }
 
       return newStreakDays;
@@ -90,7 +114,7 @@ export class StreakTracker {
         .select('seconds_watched')
         .eq('user_id', user.id)
         .gte('started_at', startOfDay.toISOString())
-        .lte('started_at', endOfDay.toISOString())
+        .lt('started_at', endOfDay.toISOString())
         .not('ended_at', 'is', null);
 
       if (videoError) {
@@ -103,7 +127,7 @@ export class StreakTracker {
         .select('seconds_listened')
         .eq('user_id', user.id)
         .gte('started_at', startOfDay.toISOString())
-        .lte('started_at', endOfDay.toISOString())
+        .lt('started_at', endOfDay.toISOString())
         .not('ended_at', 'is', null);
 
       if (podcastError) {
@@ -111,13 +135,17 @@ export class StreakTracker {
       }
 
       // Calculate total seconds for the day
-      const videoSeconds = (videoSessions || []).reduce((total, session) =>
-        total + (session.seconds_watched || 0), 0);
+      const videoSeconds = (videoSessions || []).reduce((total, session) => {
+        const seconds = Math.max(0, session.seconds_watched || 0);
+        return total + seconds;
+      }, 0);
 
-      const podcastSeconds = (podcastSessions || []).reduce((total, session) =>
-        total + (session.seconds_listened || 0), 0);
+      const podcastSeconds = (podcastSessions || []).reduce((total, session) => {
+        const seconds = Math.max(0, session.seconds_listened || 0);
+        return total + seconds;
+      }, 0);
 
-      return videoSeconds + podcastSeconds;
+      return Math.max(0, Math.floor(videoSeconds + podcastSeconds));
     } catch (error) {
       console.error('Error getting daily progress:', error);
       return 0;

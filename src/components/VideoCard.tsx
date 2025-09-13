@@ -14,18 +14,24 @@ interface VideoCardProps {
 }
 
 export function VideoCard({ video, onPlay, onDelete, className }: VideoCardProps) {
-  const progressPercent = video.durationSeconds > 0 
-    ? Math.round((video.watchSeconds / video.durationSeconds) * 100) 
+  // Validate all numeric values
+  const duration = Math.max(0, video.durationSeconds || 0);
+  const watchSeconds = Math.max(0, video.watchSeconds || 0);
+  const lastPosition = Math.max(0, video.lastPositionSeconds || 0);
+  
+  // Calculate progress percentages with validation
+  const progressPercent = duration > 0 
+    ? Math.min(Math.round((watchSeconds / duration) * 100), 100)
     : 0;
   
-  const watchProgressPercent = video.durationSeconds > 0 && video.lastPositionSeconds
-    ? Math.round((video.lastPositionSeconds / video.durationSeconds) * 100)
+  const watchProgressPercent = duration > 0 && lastPosition > 0
+    ? Math.min(Math.round((lastPosition / duration) * 100), 100)
     : 0;
 
-  // Fix progress calculation - use position or watch time, whichever is greater
-  const actualProgress = Math.max(video.lastPositionSeconds || 0, video.watchSeconds || 0);
-  const actualProgressPercent = video.durationSeconds > 0 
-    ? Math.round((actualProgress / video.durationSeconds) * 100)
+  // Use the greater of last position or total watch time for actual progress
+  const actualProgress = Math.max(lastPosition, watchSeconds);
+  const actualProgressPercent = duration > 0 
+    ? Math.min(Math.round((actualProgress / duration) * 100), 100)
     : 0;
     
   const hasProgress = actualProgress > 30;
@@ -56,12 +62,12 @@ export function VideoCard({ video, onPlay, onDelete, className }: VideoCardProps
         </div>
 
         {/* Duration badge */}
-        {video.durationSeconds > 0 && (
+        {duration > 0 && (
           <Badge 
             variant="secondary" 
             className="absolute bottom-2 right-2 bg-black/80 text-white border-0"
           >
-            {formatDuration(video.durationSeconds)}
+            {formatDuration(duration)}
           </Badge>
         )}
 
@@ -103,16 +109,16 @@ export function VideoCard({ video, onPlay, onDelete, className }: VideoCardProps
               <div className="flex items-center gap-2 mt-2">
                 <Progress value={watchProgressPercent} className="h-1 flex-1" />
                 <span className="text-xs text-muted-foreground">
-                  {formatDuration(video.lastPositionSeconds || 0)} / {formatDuration(video.durationSeconds)}
+                  {formatDuration(lastPosition)} / {formatDuration(duration)}
                 </span>
               </div>
             )}
 
             {/* Watch time info */}
-            {video.watchSeconds > 0 && (
+            {watchSeconds > 0 && (
               <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
                 <Clock className="h-3 w-3" />
-                <span>{formatDuration(video.watchSeconds)} watched</span>
+                <span>{formatDuration(watchSeconds)} watched</span>
                 {progressPercent > 0 && (
                   <span>({progressPercent}%)</span>
                 )}

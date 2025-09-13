@@ -87,8 +87,11 @@ export const DatabaseService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    // Validate position value
-    const validPosition = Math.max(0, Math.floor(lastPositionSeconds));
+    // Validate position value - ensure it's not negative or NaN
+    const validPosition = Math.max(0, Math.floor(lastPositionSeconds || 0));
+    
+    // Don't update if position is 0 (avoid unnecessary database calls)
+    if (validPosition === 0) return;
 
     const { error } = await supabase
       .from('videos')
@@ -226,6 +229,30 @@ export const DatabaseService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    // Check if there's already an active session for this video
+    const { data: existingSession } = await supabase
+      .from('watch_sessions')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('video_id', videoId)
+      .is('ended_at', null)
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // If there's an active session, return it instead of creating a new one
+    if (existingSession) {
+      return {
+        id: existingSession.id,
+        videoId: existingSession.video_id,
+        startedAt: existingSession.started_at,
+        endedAt: existingSession.ended_at,
+        secondsWatched: existingSession.seconds_watched,
+        avgPlaybackRate: existingSession.avg_playback_rate,
+        source: existingSession.source
+      };
+    }
+
     const { data, error } = await supabase
       .from('watch_sessions')
       .insert({
@@ -253,30 +280,43 @@ export const DatabaseService = {
   },
 
   async updateWatchSession(sessionId: string, updates: Partial<WatchSession>): Promise<void> {
+    if (!sessionId) return;
+    
     const updateData: any = {};
     
     if (updates.secondsWatched !== undefined) {
-      updateData.seconds_watched = Math.max(0, Math.floor(updates.secondsWatched));
+      const validSeconds = Math.max(0, Math.floor(updates.secondsWatched || 0));
+      updateData.seconds_watched = validSeconds;
     }
     if (updates.avgPlaybackRate !== undefined) {
-      updateData.avg_playback_rate = Math.max(0.25, Math.min(4, updates.avgPlaybackRate));
+      const validRate = Math.max(0.25, Math.min(4, updates.avgPlaybackRate || 1));
+      updateData.avg_playback_rate = validRate;
     }
     if (updates.endedAt !== undefined) updateData.ended_at = updates.endedAt;
 
     // Only update if we have valid data
     if (Object.keys(updateData).length === 0) return;
 
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
     const { error } = await supabase
       .from('watch_sessions')
       .update(updateData)
-      .eq('id', sessionId);
+      .eq('id', sessionId)
+      .eq('user_id', user.id); // Ensure user can only update their own sessions
 
     if (error) throw error;
   },
 
   async endWatchSession(sessionId: string, finalSecondsWatched: number): Promise<void> {
-    // Validate final seconds
-    const validSeconds = Math.max(0, Math.floor(finalSecondsWatched));
+    if (!sessionId) return;
+    
+    // Validate final seconds - ensure it's not negative or NaN
+    const validSeconds = Math.max(0, Math.floor(finalSecondsWatched || 0));
+    
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
     
     const { error } = await supabase
       .from('watch_sessions')
@@ -284,7 +324,8 @@ export const DatabaseService = {
         ended_at: new Date().toISOString(),
         seconds_watched: validSeconds
       })
-      .eq('id', sessionId);
+      .eq('id', sessionId)
+      .eq('user_id', user.id); // Ensure user can only end their own sessions
 
     if (error) throw error;
   },
@@ -316,6 +357,16 @@ export const DatabaseService = {
   async markVideoAsCompleted(videoId: string): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
+
+    // Check if already completed to avoid unnecessary updates
+    const { data: currentVideo } = await supabase
+      .from('videos')
+      .select('is_completed')
+      .eq('id', videoId)
+      .eq('user_id', user.id)
+      .single();
+      
+    if (currentVideo?.is_completed) return; // Already completed
 
     const { error } = await supabase
       .from('videos')
@@ -354,15 +405,21 @@ export const DatabaseService = {
 
     const updateData: any = {};
     if (updates.totalSeconds !== undefined) {
-      updateData.total_seconds = Math.max(0, Math.floor(updates.totalSeconds));
+      const validSeconds = Math.max(0, Math.floor(updates.totalSeconds || 0));
+      updateData.total_seconds = validSeconds;
     }
     if (updates.dailyGoalSeconds !== undefined) {
-      updateData.weekly_goal_seconds = Math.max(60, Math.floor(updates.dailyGoalSeconds)); // Minimum 1 minute
+      const validGoal = Math.max(60, Math.floor(updates.dailyGoalSeconds || 60)); // Minimum 1 minute
+      updateData.weekly_goal_seconds = validGoal;
     }
     if (updates.lastWatchedAt !== undefined) updateData.last_watched_at = updates.lastWatchedAt;
     if (updates.streakDays !== undefined) {
-      updateData.streak_days = Math.max(0, Math.floor(updates.streakDays));
+      const validStreak = Math.max(0, Math.floor(updates.streakDays || 0));
+      updateData.streak_days = validStreak;
     }
+    
+    // Add updated_at timestamp
+    updateData.updated_at = new Date().toISOString();
 
     // Only update if we have valid data
     if (Object.keys(updateData).length === 0) return;
@@ -380,37 +437,64 @@ export const DatabaseService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return [];
 
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 6); // Last 7 days
+    // Get last 7 days including today
+    const today = new Date();
+    const startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - 6);
+    startDate.setHours(0, 0, 0, 0);
     
-    const { data, error } = await supabase
+    const endDate = new Date(today);
+    endDate.setHours(23, 59, 59, 999);
+    
+    // Get video sessions
+    const { data: videoData, error: videoError } = await supabase
       .from('watch_sessions')
       .select('started_at, seconds_watched')
       .eq('user_id', user.id)
       .gte('started_at', startDate.toISOString())
-      .lte('started_at', endDate.toISOString())
+      .lt('started_at', endDate.toISOString())
       .not('ended_at', 'is', null);
 
-    if (error) return [];
+    // Get podcast sessions
+    const { data: podcastData, error: podcastError } = await supabase
+      .from('podcast_sessions')
+      .select('started_at, seconds_listened')
+      .eq('user_id', user.id)
+      .gte('started_at', startDate.toISOString())
+      .lt('started_at', endDate.toISOString())
+      .not('ended_at', 'is', null);
+
+    if (videoError || podcastError) {
+      console.error('Error fetching weekly data:', videoError || podcastError);
+      return [];
+    }
     
     // Group by date
     const dailyTotals: { [date: string]: number } = {};
     
-    data.forEach(session => {
+    // Process video sessions
+    (videoData || []).forEach(session => {
       const date = new Date(session.started_at).toISOString().split('T')[0];
-      dailyTotals[date] = (dailyTotals[date] || 0) + (session.seconds_watched || 0);
+      const seconds = Math.max(0, session.seconds_watched || 0);
+      dailyTotals[date] = (dailyTotals[date] || 0) + seconds;
+    });
+    
+    // Process podcast sessions
+    (podcastData || []).forEach(session => {
+      const date = new Date(session.started_at).toISOString().split('T')[0];
+      const seconds = Math.max(0, session.seconds_listened || 0);
+      dailyTotals[date] = (dailyTotals[date] || 0) + seconds;
     });
     
     // Create array with all 7 days, filling in zeros
-    const result = [] as { date: string; seconds: number }[];
+    const result: { date: string; seconds: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       result.push({
         date: dateStr,
-        seconds: dailyTotals[dateStr] || 0
+        seconds: Math.max(0, dailyTotals[dateStr] || 0)
       });
     }
     return result;

@@ -79,14 +79,20 @@ export function Stats() {
   // Calculate today's watch time
   const today = new Date().toISOString().split('T')[0];
   
-  // Find today's data in weekly data
-  const todayData = weeklyData?.find(day => day.date === today);
+  // Find today's data in weekly data with proper date comparison
+  const todayData = weeklyData?.find(day => {
+    const dayDate = new Date(day.date).toISOString().split('T')[0];
+    return dayDate === today;
+  });
   const todaySeconds = todayData?.seconds || 0;
   
-  const dailyProgress = dailyGoalSeconds > 0 ? (todaySeconds / dailyGoalSeconds) * 100 : 0;
+  const dailyProgress = dailyGoalSeconds > 0 ? Math.min((todaySeconds / dailyGoalSeconds) * 100, 100) : 0;
   
   // Calculate weekly total for the weekly stats card
-  const currentWeekSeconds = weeklyData?.reduce((total, day) => total + (day.seconds || 0), 0) || 0;
+  const currentWeekSeconds = weeklyData?.reduce((total, day) => {
+    const seconds = Math.max(0, day.seconds || 0);
+    return total + seconds;
+  }, 0) || 0;
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-8">
@@ -105,7 +111,7 @@ export function Stats() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Time</p>
-              <p className="text-2xl font-bold">{formatDuration(userStats.totalSeconds)}</p>
+              <p className="text-2xl font-bold">{formatDuration(userStats.totalSeconds || 0)}</p>
             </div>
           </div>
         </Card>
@@ -117,7 +123,7 @@ export function Stats() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Today's Progress</p>
-              <p className="text-2xl font-bold">{Math.round(dailyProgress)}%</p>
+              <p className="text-2xl font-bold">{Math.max(0, Math.round(dailyProgress))}%</p>
             </div>
           </div>
         </Card>
@@ -129,7 +135,7 @@ export function Stats() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Streak</p>
-              <p className="text-2xl font-bold">{userStats.streakDays} days</p>
+              <p className="text-2xl font-bold">{Math.max(0, userStats.streakDays || 0)} days</p>
             </div>
           </div>
         </Card>
@@ -141,7 +147,7 @@ export function Stats() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">This Week</p>
-              <p className="text-2xl font-bold">{formatDuration(currentWeekSeconds)}</p>
+              <p className="text-2xl font-bold">{formatDuration(Math.max(0, currentWeekSeconds))}</p>
             </div>
           </div>
         </Card>
@@ -153,14 +159,14 @@ export function Stats() {
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">Today's Progress</h3>
             <Badge variant={dailyProgress >= 100 ? "default" : "secondary"}>
-              {formatDuration(todaySeconds)} / {formatDuration(dailyGoalSeconds)}
+              {formatDuration(Math.max(0, todaySeconds))} / {formatDuration(Math.max(0, dailyGoalSeconds))}
             </Badge>
           </div>
-          <Progress value={Math.min(dailyProgress, 100)} className="h-3" />
+          <Progress value={Math.max(0, Math.min(dailyProgress, 100))} className="h-3" />
           <p className="text-sm text-muted-foreground">
             {dailyProgress >= 100 
-              ? " Great job! You've reached your daily goal!" 
-              : `${formatDuration(dailyGoalSeconds - todaySeconds)} remaining to reach your daily goal`
+              ? "🎉 Great job! You've reached your daily goal!" 
+              : `${formatDuration(Math.max(0, dailyGoalSeconds - todaySeconds))} remaining to reach your daily goal`
             }
           </p>
         </div>
@@ -176,14 +182,29 @@ export function Stats() {
                 <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                 <XAxis 
                   dataKey="date" 
-                  tickFormatter={(date) => new Date(date).toLocaleDateString('en-US', { weekday: 'short' })}
+                  tickFormatter={(date) => {
+                    try {
+                      return new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
+                    } catch {
+                      return 'Invalid';
+                    }
+                  }}
                 />
                 <YAxis 
-                  tickFormatter={(seconds) => `${Math.round(seconds / 3600 * 10) / 10}h`}
+                  tickFormatter={(seconds) => {
+                    const hours = Math.max(0, seconds) / 3600;
+                    return `${Math.round(hours * 10) / 10}h`;
+                  }}
                 />
                 <Tooltip 
-                  formatter={(seconds: number) => [formatDuration(seconds), 'Watch Time']}
-                  labelFormatter={(date) => new Date(date).toLocaleDateString()}
+                  formatter={(seconds: number) => [formatDuration(Math.max(0, seconds || 0)), 'Watch Time']}
+                  labelFormatter={(date) => {
+                    try {
+                      return new Date(date).toLocaleDateString();
+                    } catch {
+                      return 'Invalid Date';
+                    }
+                  }}
                 />
                 <Bar dataKey="seconds" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
               </BarChart>

@@ -261,6 +261,22 @@ export const PodcastDatabaseService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    // Check if there's already an active session for this episode
+    const { data: existingSession } = await supabase
+      .from('podcast_sessions')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('episode_id', episodeId)
+      .is('ended_at', null)
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // If there's an active session, return it instead of creating a new one
+    if (existingSession) {
+      return existingSession;
+    }
+
     const { data, error } = await supabase
       .from('podcast_sessions')
       .insert({
@@ -278,14 +294,18 @@ export const PodcastDatabaseService = {
   },
 
   async updateListenSession(sessionId: string, updates: Partial<PodcastSession>): Promise<void> {
+    if (!sessionId) return;
+    
     // Validate updates
     const validUpdates: any = {};
     
     if (updates.seconds_listened !== undefined) {
-      validUpdates.seconds_listened = Math.max(0, Math.floor(updates.seconds_listened));
+      const validSeconds = Math.max(0, Math.floor(updates.seconds_listened || 0));
+      validUpdates.seconds_listened = validSeconds;
     }
     if (updates.avg_playback_rate !== undefined) {
-      validUpdates.avg_playback_rate = Math.max(0.25, Math.min(4, updates.avg_playback_rate));
+      const validRate = Math.max(0.25, Math.min(4, updates.avg_playback_rate || 1));
+      validUpdates.avg_playback_rate = validRate;
     }
     if (updates.ended_at !== undefined) {
       validUpdates.ended_at = updates.ended_at;
@@ -300,17 +320,26 @@ export const PodcastDatabaseService = {
     // Only update if we have valid data
     if (Object.keys(validUpdates).length === 0) return;
     
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    
     const { error } = await supabase
       .from('podcast_sessions')
       .update(validUpdates)
-      .eq('id', sessionId);
+      .eq('id', sessionId)
+      .eq('user_id', user.id); // Ensure user can only update their own sessions
     
     if (error) throw new Error(`Failed to update session: ${error.message}`);
   },
 
   async endListenSession(sessionId: string, finalSecondsListened: number): Promise<void> {
-    // Validate final seconds
-    const validSeconds = Math.max(0, Math.floor(finalSecondsListened));
+    if (!sessionId) return;
+    
+    // Validate final seconds - ensure it's not negative or NaN
+    const validSeconds = Math.max(0, Math.floor(finalSecondsListened || 0));
+    
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
     
     const { data, error } = await supabase
       .from('podcast_sessions')
@@ -319,11 +348,12 @@ export const PodcastDatabaseService = {
         ended_at: new Date().toISOString()
       } as any)
       .eq('id', sessionId)
+      .eq('user_id', user.id) // Ensure user can only end their own sessions
       .select('*');
     
     if (error) throw new Error(`Failed to end session: ${error.message}`);
     
-    // Also persist last position on the episode if we can infer episode id
+    // Update episode progress when session ends
     if (data && data.length > 0) {
       const episodeId = data[0].episode_id as string | undefined;
       if (episodeId) {
@@ -365,11 +395,11 @@ export const PodcastDatabaseService = {
       .eq('id', episodeId)
       .single();
     
-    if (episodeData?.last_position_seconds) {
-      return Math.max(0, episodeData.last_position_seconds);
+    if (episodeData?.last_position_seconds && episodeData.last_position_seconds > 0) {
+      return Math.max(0, Math.floor(episodeData.last_position_seconds));
     }
     
-    // Fallback: Use the most recent session (ended or in-progress) to resume from last saved position
+    // Fallback: Get position from most recent session
     const { data, error } = await supabase
       .from('podcast_sessions')
       .select('seconds_listened, started_at, ended_at')
@@ -379,12 +409,18 @@ export const PodcastDatabaseService = {
       .limit(1);
     
     if (error || !data || data.length === 0) return 0;
-    return Math.max(0, data[0].seconds_listened || 0);
+    return Math.max(0, Math.floor(data[0].seconds_listened || 0));
   },
 
   async markEpisodeAsCompleted(episodeId: string): Promise<void> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
+    // Check if already completed to avoid unnecessary updates
+    const { data: currentEpisode } = await supabase
+      .from('podcast_episodes')
+      .select('is_completed')
+      .eq('id', episodeId)
+      .single();
+      
+    if (currentEpisode?.is_completed) return; // Already completed
 
     const { error } = await supabase
       .from('podcast_episodes')

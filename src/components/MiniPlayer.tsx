@@ -78,26 +78,28 @@ export const MiniPlayer: React.FC = () => {
       if (!isPodcast || !meta?.podcast || !audioRef.current) return;
       const ep = meta.podcast;
 
-      // get last known position
-      const lastPos = await PodcastDatabaseService.getLastPositionForEpisode(ep.id);
-      if (!Number.isNaN(lastPos) && lastPos > 0 && lastPos < (ep.duration_seconds - 10)) {
-        audioRef.current.currentTime = lastPos;
-        setPosition(lastPos);
-        setGlobalPos(lastPos);
-      } else {
-        setPosition(0);
-        setGlobalPos(0);
-      }
-
-      audioRef.current.src = ep.audio_url;
-      audioRef.current.playbackRate = playbackRate;
-      audioRef.current.volume = muted ? 0 : volume;
-
       try {
+        // Get last known position with validation
+        const lastPos = await PodcastDatabaseService.getLastPositionForEpisode(ep.id);
+        const validLastPos = Math.max(0, Math.min(lastPos || 0, (ep.duration_seconds || 0) - 10));
+        
+        if (validLastPos > 30) { // Only resume if more than 30 seconds in
+          audioRef.current.currentTime = validLastPos;
+          setPosition(validLastPos);
+          setGlobalPos(validLastPos);
+        } else {
+          setPosition(0);
+          setGlobalPos(0);
+        }
+
+        audioRef.current.src = ep.audio_url;
+        audioRef.current.playbackRate = playbackRate;
+        audioRef.current.volume = muted ? 0 : volume;
+
         const s = await PodcastDatabaseService.startListenSession(ep.id);
         setSession(s);
-      } catch (e) {
-        console.error('Failed to start podcast session', e);
+      } catch (error) {
+        console.error('Failed to setup podcast audio:', error);
       }
     };
     setup();
@@ -137,39 +139,60 @@ export const MiniPlayer: React.FC = () => {
           playerVars: { autoplay: 0, controls: 0 },
           events: {
             onReady: () => {
-              // resume from last position
-              const lastPos = meta.video?.lastPositionSeconds || 0;
-              if (lastPos > 0) {
-                try { ytPlayerRef.current.seekTo(lastPos, true); } catch {}
-                setPosition(lastPos);
-                setGlobalPos(lastPos);
+              if (!mounted) return;
+              
+              // Resume from last position with validation
+              const lastPos = Math.max(0, meta.video?.lastPositionSeconds || 0);
+              const duration = ytPlayerRef.current?.getDuration() || 0;
+              const validLastPos = Math.min(lastPos, Math.max(0, duration - 10));
+              
+              if (validLastPos > 30) { // Only resume if more than 30 seconds in
+                try { 
+                  ytPlayerRef.current.seekTo(validLastPos, true); 
+                  setPosition(validLastPos);
+                  setGlobalPos(validLastPos);
+                } catch (error) {
+                  console.error('Failed to seek to last position:', error);
+                }
               }
+              
               if (isPlaying) {
-                try { ytPlayerRef.current.playVideo(); } catch {}
+                try { 
+                  ytPlayerRef.current.playVideo(); 
+                } catch (error) {
+                  console.error('Failed to start video playback:', error);
+                }
               }
             },
             onStateChange: async (e: any) => {
+              if (!mounted || !ytPlayerRef.current) return;
+              
               if (!ytPlayerRef.current) return;
               const YT = (window as any).YT;
               if (e.data === YT.PlayerState.ENDED) {
-                // end session
-                const cur = Math.floor(ytPlayerRef.current.getCurrentTime() || 0);
+                // End session and mark as completed
+                const cur = Math.max(0, Math.floor(ytPlayerRef.current.getCurrentTime() || 0));
                 try {
                   if (videoSessionIdRef.current) {
                     await DatabaseService.endWatchSession(videoSessionIdRef.current, cur);
                   }
                   await DatabaseService.updateVideoProgress(meta.video!.id, cur);
-                } catch {}
+                  await DatabaseService.markVideoAsCompleted(meta.video!.id);
+                } catch (error) {
+                  console.error('Failed to end video session:', error);
+                }
                 next();
               } else if (e.data === YT.PlayerState.PAUSED) {
-                // persist on pause
-                const cur = Math.floor(ytPlayerRef.current.getCurrentTime() || 0);
+                // Persist progress on pause
+                const cur = Math.max(0, Math.floor(ytPlayerRef.current.getCurrentTime() || 0));
                 try {
                   if (videoSessionIdRef.current) {
                     await DatabaseService.updateWatchSession(videoSessionIdRef.current, { secondsWatched: cur });
                   }
                   await DatabaseService.updateVideoProgress(meta.video!.id, cur);
-                } catch {}
+                } catch (error) {
+                  console.error('Failed to update video progress:', error);
+                }
               }
             }
           }
@@ -178,22 +201,42 @@ export const MiniPlayer: React.FC = () => {
         // Progress interval for video
         if (progressTimer.current) window.clearInterval(progressTimer.current);
         progressTimer.current = window.setInterval(async () => {
-          if (!ytPlayerRef.current) return;
-          const cur = Math.floor(ytPlayerRef.current.getCurrentTime() || 0);
-          const dur = Math.floor(ytPlayerRef.current.getDuration() || (meta.video?.durationSeconds || 0));
+          if (!mounted || !ytPlayerRef.current) return;
+          
+          const cur = Math.max(0, Math.floor(ytPlayerRef.current.getCurrentTime() || 0));
+          const dur = Math.max(0, Math.floor(ytPlayerRef.current.getDuration() || (meta.video?.durationSeconds || 0)));
+          
+          // Only update if we have valid values
+          if (cur < 0 || dur <= 0) return;
+          
           setDuration(dur);
           setPosition(cur);
           setGlobalPos(cur);
-          await dailyTimeTracker.addTime(1);
+          
+          // Only add time if video is actually playing
+          const playerState = ytPlayerRef.current.getPlayerState();
+          const YT = (window as any).YT;
+          if (playerState === YT.PlayerState.PLAYING) {
+            await dailyTimeTracker.addTime(1);
+          }
+          
           try {
             if (videoSessionIdRef.current) {
               await DatabaseService.updateWatchSession(videoSessionIdRef.current, { secondsWatched: cur });
             }
             await DatabaseService.updateVideoProgress(meta.video!.id, cur);
-          } catch {}
-          // completion logic similar to podcasts
-          if (dur >= 120 && dur - cur <= 60 && !meta.video?.isCompleted) {
-            try { await DatabaseService.markVideoAsCompleted(meta.video!.id); } catch {}
+          } catch (error) {
+            console.error('Failed to update video progress:', error);
+          }
+          
+          // Mark as completed when near the end (90% watched or 1 minute remaining)
+          const completionThreshold = Math.min(dur * 0.9, dur - 60);
+          if (dur >= 120 && cur >= completionThreshold && !meta.video?.isCompleted) {
+            try { 
+              await DatabaseService.markVideoAsCompleted(meta.video!.id); 
+            } catch (error) {
+              console.error('Failed to mark video as completed:', error);
+            }
           }
         }, 1000) as unknown as number;
       } catch (e) {
