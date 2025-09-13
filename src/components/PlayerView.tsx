@@ -8,6 +8,7 @@ import { DatabaseService } from '@/lib/database';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 import { formatDuration } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useYouTubePlayer } from '@/hooks/useYouTubePlayer'; // Import useYouTubePlayer
 
 interface PlayerViewProps {
   youtubeIframeRef: React.RefObject<HTMLDivElement>;
@@ -24,7 +25,6 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
     positionSeconds,
     pause,
     resume,
-    stop,
     next,
     prev,
     minimizeVideo,
@@ -37,181 +37,36 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
 
   const [localDuration, setLocalDuration] = useState(0);
   const [localPosition, setLocalPosition] = useState(0);
-  const ytPlayerInstance = useRef<any>(null);
-  const progressIntervalRef = useRef<number | null>(null);
 
   const video = current?.type === 'video' ? current : null;
 
-  // Effect 1: Setup YouTube player
+  // Use the YouTube player hook
+  const { ytPlayerInstance, videoSessionIdRef } = useYouTubePlayer({
+    currentVideo: video ? { id: video.id, youtubeId: video.youtubeId!, durationSeconds: video.durationSeconds } : null,
+    youtubeIframeRef,
+    isPlaying,
+    volume,
+    muted,
+    playbackRate,
+    localPosition,
+    setLocalPosition,
+    setLocalDuration,
+    pause,
+    resume,
+    next,
+    clearCurrent,
+  });
+
+  // Effect: Update playerVars for fullscreen when PlayerView is active
   useEffect(() => {
-    if (!video || !youtubeIframeRef.current) return;
-
-    const playerContainer = youtubeIframeRef.current;
-    const existingIframe = playerContainer.querySelector('iframe');
-
-    const createPlayer = () => {
-      if (!(window as any).YT || !(window as any).YT.Player) {
-        console.error("YouTube IFrame API not loaded.");
-        return;
-      }
-
-      ytPlayerInstance.current = new (window as any).YT.Player(playerContainer, {
-        videoId: video.youtubeId, // Use video.youtubeId
-        playerVars: {
-          autoplay: 1, // Autoplay when opened in PlayerView
-          controls: 0, // Custom controls
-          modestbranding: 1,
-          rel: 0,
-          showinfo: 0,
-          iv_load_policy: 3,
-          fs: 1, // Allow fullscreen
-        },
-        events: {
-          onReady: (event: any) => {
-            ytPlayerInstance.current = event.target;
-            if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
-              ytPlayerInstance.current.seekTo(localPosition, true);
-              ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
-              ytPlayerInstance.current.setPlaybackRate(playbackRate);
-              
-              // Only attempt autoplay if `isPlaying` is true from the store
-              if (usePlayerStore.getState().isPlaying) { // Check current store state
-                try {
-                  ytPlayerInstance.current.playVideo();
-                } catch (e: any) {
-                  console.error("YT Autoplay failed in PlayerView:", e);
-                  toast.error("Autoplay blocked. Tap play to watch.");
-                  pause(); // Update store state to paused
-                }
-              }
-              setLocalDuration(ytPlayerInstance.current.getDuration());
-            }
-          },
-          onStateChange: (event: any) => {
-            const YT = (window as any).YT;
-            if (event.data === YT.PlayerState.ENDED) {
-              handleEnded();
-            } else if (event.data === YT.PlayerState.PAUSED) {
-              pause();
-            } else if (event.data === YT.PlayerState.PLAYING) {
-              resume();
-            }
-          },
-          onError: (error: any) => {
-            console.error("YouTube Player Error:", error);
-            toast.error("YouTube Player Error: Could not load video.");
-            clearCurrent();
-          }
-        },
-      });
-    };
-
-    if (existingIframe) {
-      if (existingIframe.parentElement !== playerContainer) {
-        playerContainer.appendChild(existingIframe);
-      }
-      existingIframe.style.width = '100%';
-      existingIframe.style.height = '100%';
-      ytPlayerInstance.current = (window as any).YT.get(existingIframe.id);
-      
-      if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
-        ytPlayerInstance.current.seekTo(localPosition, true);
-        ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
-        ytPlayerInstance.current.setPlaybackRate(playbackRate);
-        if (usePlayerStore.getState().isPlaying) { // Check current store state
-          try {
-            ytPlayerInstance.current.playVideo();
-          } catch (e: any) {
-            console.error("YT Autoplay failed in PlayerView (existing iframe):", e);
-            toast.error("Autoplay blocked. Tap play to watch.");
-            pause();
-          }
-        } else {
-          ytPlayerInstance.current.pauseVideo();
-        }
-      }
-    } else {
-      if (!(window as any).YT || !(window as any).YT.Player) {
-        const script = document.createElement('script');
-        script.src = 'https://www.youtube.com/iframe_api';
-        (window as any).onYouTubeIframeAPIReady = createPlayer;
-        document.head.appendChild(script);
-      } else {
-        createPlayer();
-      }
+    if (ytPlayerInstance.current && typeof ytPlayerInstance.current.setPlaybackQuality === 'function') {
+      // Ensure fullscreen is enabled when in PlayerView
+      // Note: playerVars can't be changed after player creation, but we can ensure the iframe is correctly configured
+      // The `useYouTubePlayer` hook now handles moving the iframe and re-syncing state.
+      // For fullscreen, the iframe itself needs `allowfullscreen` attribute, which is handled by the API.
+      // The `fs: 1` playerVar is set during player creation in useYouTubePlayer.
     }
-
-    return () => {
-      if (ytPlayerInstance.current && typeof ytPlayerInstance.current.destroy === 'function') {
-        if (!playerStore.isMinimized) {
-          try { ytPlayerInstance.current.destroy(); } catch (e) { console.warn("Error destroying YT player:", e); }
-        }
-      }
-      ytPlayerInstance.current = null;
-      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-    };
-  }, [video?.id, youtubeIframeRef, localPosition, playbackRate, volume, muted, pause, clearCurrent, setLocalDuration, toast]); // Dependencies for initial setup
-
-  // Effect 2: Sync global playback state to YouTube player
-  useEffect(() => {
-    if (!video || !ytPlayerInstance.current || typeof ytPlayerInstance.current.getPlayerState !== 'function') return;
-    const YT = (window as any).YT;
-    if (isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PLAYING) {
-      try { 
-        if (typeof ytPlayerInstance.current.playVideo === 'function') {
-          ytPlayerInstance.current.playVideo(); 
-        }
-      } catch (e) { console.error("YT play failed:", e); }
-    } else if (!isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PAUSED) {
-      try { 
-        if (typeof ytPlayerInstance.current.pauseVideo === 'function') {
-          ytPlayerInstance.current.pauseVideo(); 
-        }
-      } catch (e) { console.error("YT pause failed:", e); }
-    }
-  }, [isPlaying, video, ytPlayerInstance.current]); // Only re-run when isPlaying or video changes
-
-  // Effect 3: Sync local position/duration with global state and update DB
-  useEffect(() => {
-    if (!video || !ytPlayerInstance.current || typeof ytPlayerInstance.current.getCurrentTime !== 'function' || typeof ytPlayerInstance.current.getDuration !== 'function' || typeof ytPlayerInstance.current.getPlayerState !== 'function') return;
-
-    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-    progressIntervalRef.current = window.setInterval(async () => {
-      const currentYTPlayer = ytPlayerInstance.current;
-      if (!currentYTPlayer || typeof currentYTPlayer.getCurrentTime !== 'function') return;
-
-      const currentPos = Math.floor(currentYTPlayer.getCurrentTime());
-      const currentDur = Math.floor(currentYTPlayer.getDuration());
-      
-      setLocalPosition(currentPos);
-      setLocalDuration(currentDur);
-      setGlobalPosition(currentPos);
-
-      const YT = (window as any).YT;
-      if (currentYTPlayer.getPlayerState() === YT.PlayerState.PLAYING) {
-        await dailyTimeTracker.addTime(1);
-        // Debounced database update for last position
-        await DatabaseService.updateVideoProgress(video.id, currentPos);
-      }
-    }, 1000) as unknown as number;
-
-    return () => {
-      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-      progressIntervalRef.current = null;
-    };
-  }, [video?.id, isPlaying, ytPlayerInstance.current]); // Keep isPlaying here as it affects when dailyTimeTracker.addTime is called
-
-  // Effect 4: Sync global volume/mute to YouTube player
-  useEffect(() => {
-    if (!ytPlayerInstance.current || typeof ytPlayerInstance.current.setVolume !== 'function') return;
-    ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
-  }, [volume, muted, ytPlayerInstance.current]);
-
-  // Effect 5: Sync global playback rate to YouTube player
-  useEffect(() => {
-    if (!ytPlayerInstance.current || typeof ytPlayerInstance.current.setPlaybackRate !== 'function') return;
-    ytPlayerInstance.current.setPlaybackRate(playbackRate);
-  }, [playbackRate, ytPlayerInstance.current]);
+  }, [ytPlayerInstance.current]);
 
   const handleSeek = useCallback((vals: number[]) => {
     const newPos = vals[0];
@@ -275,7 +130,7 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
       {/* Video Player Area */}
       <div className="relative flex-1 bg-black flex items-center justify-center">
         <div ref={youtubeIframeRef} className="w-full h-full aspect-video max-h-full max-w-full">
-          {/* YouTube iframe will be appended here */}
+          {/* YouTube iframe will be appended here by useYouTubePlayer */}
         </div>
       </div>
 
