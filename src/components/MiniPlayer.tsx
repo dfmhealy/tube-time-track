@@ -10,6 +10,7 @@ import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 import { formatDuration } from '@/lib/utils';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast'; // Added import for useToast
 
 interface MiniPlayerProps {
   youtubeIframeRef: React.RefObject<HTMLDivElement>;
@@ -154,7 +155,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
 
       } catch (e) {
         console.error('Failed to load media meta or last position', e);
-        toast.error("Failed to load media. Please try again.");
+        toast({
+          title: "Error",
+          description: "Failed to load media. Please try again.",
+          variant: "destructive"
+        });
         clearCurrent();
       }
     })();
@@ -179,7 +184,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
         setPodcastSession(s);
       } catch (error) {
         console.error('Failed to start podcast session:', error);
-        toast.error("Failed to start podcast session.");
+        toast({
+          title: "Error",
+          description: "Failed to start podcast session.",
+          variant: "destructive"
+        });
         clearCurrent();
         return;
       }
@@ -187,7 +196,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
       if (isPlaying) {
         audio.play().catch(e => {
           console.error("Podcast autoplay failed:", e);
-          toast.info("Autoplay blocked. Tap play to listen.");
+          toast({
+            title: "Autoplay Blocked",
+            description: "Autoplay blocked. Tap play to listen.",
+            variant: "info"
+          });
           pause(); // Set global state to paused if autoplay fails
         });
       }
@@ -269,7 +282,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
               if (isPlaying) {
                 ytPlayerInstance.current.playVideo().catch((e: any) => {
                   console.error("YT Autoplay failed:", e);
-                  toast.info("Autoplay blocked. Tap play to watch.");
+                  toast({
+                    title: "Autoplay Blocked",
+                    description: "Autoplay blocked. Tap play to watch.",
+                    variant: "info"
+                  });
                   pause();
                 });
               }
@@ -287,7 +304,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
             },
             onError: (error: any) => {
               console.error("YouTube Player Error:", error);
-              toast.error("YouTube Player Error: Could not load video.");
+              toast({
+                title: "Error",
+                description: "YouTube Player Error: Could not load video.",
+                variant: "destructive"
+              });
               clearCurrent();
             }
           },
@@ -300,7 +321,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
         videoSessionIdRef.current = s.id;
       } catch (error) {
         console.error('Failed to start video watch session:', error);
-        toast.error("Failed to start video session.");
+        toast({
+          title: "Error",
+          description: "Failed to start video session.",
+          variant: "destructive"
+        });
         clearCurrent();
       }
     };
