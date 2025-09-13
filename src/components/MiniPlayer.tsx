@@ -7,7 +7,7 @@ import { usePlayerStore } from '@/store/playerStore';
 import { PodcastDatabaseService, type PodcastEpisode, type PodcastSession } from '@/lib/podcastDatabase';
 import { DatabaseService, type Video } from '@/lib/database';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
-import { formatDuration, getProxiedAudioUrl } from '@/lib/utils'; // Import getProxiedAudioUrl
+import { formatDuration, getProxiedAudioUrl } from '@/lib/utils';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -178,33 +178,49 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
       audio.playbackRate = playbackRate;
       audio.volume = muted ? 0 : volume;
 
-      const AUDIO_PROXY_COUNT = 3; // Number of proxies defined in utils.ts
-
-      // Try direct URL first
-      audio.src = url;
-      audio.load();
-      try {
-        await audio.play();
-        return true; // Successfully played
-      } catch (e: any) {
-        console.warn("Direct podcast playback failed:", e);
-        if (e.name === 'NotSupportedError' || e.name === 'DOMException') {
-          // Try with proxies
-          for (let i = 0; i < AUDIO_PROXY_COUNT; i++) {
-            const proxiedUrl = getProxiedAudioUrl(url, i);
-            audio.src = proxiedUrl;
-            audio.load();
-            try {
-              await audio.play();
-              console.log(`Podcast playback successful via proxy ${i + 1}`);
-              return true; // Successfully played via proxy
-            } catch (proxyError: any) {
-              console.warn(`Podcast playback failed via proxy ${i + 1}:`, proxyError);
-            }
-          }
-        }
-        throw e; // Re-throw if all attempts fail or it's not a NotSupportedError
+      const AUDIO_PROXY_COUNT = 3;
+      const urlsToTry = [url]; // Start with direct URL
+      for (let i = 0; i < AUDIO_PROXY_COUNT; i++) {
+        urlsToTry.push(getProxiedAudioUrl(url, i));
       }
+
+      for (const currentUrl of urlsToTry) {
+        audio.src = currentUrl;
+        audio.load(); // Load the new source
+
+        try {
+          // Wait for the audio to be ready to play
+          await new Promise<void>((resolve, reject) => {
+            const onCanPlay = () => {
+              audio.removeEventListener('canplay', onCanPlay);
+              audio.removeEventListener('error', onError);
+              resolve();
+            };
+            const onError = (e: Event) => {
+              audio.removeEventListener('canplay', onCanPlay);
+              audio.removeEventListener('error', onError);
+              reject(new Error(`Audio load error: ${e.type}`));
+            };
+
+            audio.addEventListener('canplay', onCanPlay);
+            audio.addEventListener('error', onError);
+
+            // If already ready, resolve immediately
+            if (audio.readyState >= 3) { // HAVE_FUTURE_DATA or HAVE_ENOUGH_DATA
+              onCanPlay();
+            }
+          });
+
+          // Attempt to play
+          await audio.play();
+          console.log(`Podcast playback successful with URL: ${currentUrl}`);
+          return true; // Successfully played
+        } catch (e: any) {
+          console.warn(`Podcast playback failed with URL: ${currentUrl}`, e);
+          // Continue to next URL if this one failed
+        }
+      }
+      throw new Error('All podcast playback attempts failed.'); // If all URLs failed
     };
 
     const setupAudio = async () => {
