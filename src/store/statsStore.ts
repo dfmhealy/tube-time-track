@@ -30,7 +30,8 @@ export const useStatsStore = create<StatsState>((set, get) => ({
         userStats: {
           ...currentStats,
           totalSeconds: currentStats.totalSeconds + validSeconds,
-          lastWatchedAt: new Date().toISOString()
+          lastWatchedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString() // Update updatedAt
         }
       });
     }
@@ -42,7 +43,7 @@ export const useStatsStore = create<StatsState>((set, get) => ({
         userStats: {
           ...currentStats,
           dailyGoalSeconds: newGoal,
-          updated_at: new Date().toISOString() // Assuming updated_at exists in UserStats
+          updatedAt: new Date().toISOString() // Update updatedAt
         }
       });
     }
@@ -54,7 +55,7 @@ export const useStatsStore = create<StatsState>((set, get) => ({
         userStats: {
           ...currentStats,
           streakDays: newStreak,
-          updated_at: new Date().toISOString()
+          updatedAt: new Date().toISOString() // Update updatedAt
         }
       });
     }

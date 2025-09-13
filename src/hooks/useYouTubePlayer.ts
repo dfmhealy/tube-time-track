@@ -126,7 +126,7 @@ export const useYouTubePlayer = ({
         ytPlayerInstance.current = (window as any).YT.get(playerElementId);
         console.log(`Moved existing YouTube player for ${videoItem.youtubeId}`);
         // Re-sync player state
-        if (ytPlayerInstance.current) {
+        if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
           ytPlayerInstance.current.seekTo(localPosition, true);
           ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
           ytPlayerInstance.current.setPlaybackRate(playbackRate);
@@ -168,7 +168,7 @@ export const useYouTubePlayer = ({
                     ytPlayerInstance.current.playVideo();
                   } catch (e: any) {
                     console.error("YT Autoplay failed:", e);
-                    toast({ title: "Autoplay Blocked", description: "Autoplay blocked. Tap play to watch.", variant: "info" });
+                    toast({ title: "Autoplay Blocked", description: "Autoplay blocked. Tap play to watch.", variant: "default" }); // Changed from "info" to "default"
                     pause();
                   }
                 }
@@ -195,12 +195,13 @@ export const useYouTubePlayer = ({
         console.log(`Created new YouTube player for ${videoItem.youtubeId}`);
       } else {
         // Player already exists and is in the correct container, just update video if needed
-        if (ytPlayerInstance.current && ytPlayerInstance.current.getVideoData().video_id !== videoItem.youtubeId) {
+        // Guard getVideoData call
+        if (ytPlayerInstance.current && typeof ytPlayerInstance.current.getVideoData === 'function' && ytPlayerInstance.current.getVideoData().video_id !== videoItem.youtubeId) {
           ytPlayerInstance.current.loadVideoById(videoItem.youtubeId, localPosition);
           console.log(`Loaded new video ${videoItem.youtubeId} into existing player`);
         }
         // Ensure state is synced
-        if (ytPlayerInstance.current) {
+        if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
           ytPlayerInstance.current.seekTo(localPosition, true);
           ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
           ytPlayerInstance.current.setPlaybackRate(playbackRate);

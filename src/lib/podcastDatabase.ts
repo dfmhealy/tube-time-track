@@ -1,4 +1,22 @@
 import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
+
+type PodcastEpisodeRow = Database['public']['Tables']['podcast_episodes']['Row'];
+type PodcastEpisodeInsert = Database['public']['Tables']['podcast_episodes']['Insert'];
+type PodcastEpisodeUpdate = Database['public']['Tables']['podcast_episodes']['Update'];
+
+type PodcastRow = Database['public']['Tables']['podcasts']['Row'];
+type PodcastInsert = Database['public']['Tables']['podcasts']['Insert'];
+type PodcastUpdate = Database['public']['Tables']['podcasts']['Update'];
+
+type PodcastSubscriptionRow = Database['public']['Tables']['podcast_subscriptions']['Row'];
+type PodcastSubscriptionInsert = Database['public']['Tables']['podcast_subscriptions']['Insert'];
+type PodcastSubscriptionUpdate = Database['public']['Tables']['podcast_subscriptions']['Update'];
+
+type PodcastSessionRow = Database['public']['Tables']['podcast_sessions']['Row'];
+type PodcastSessionInsert = Database['public']['Tables']['podcast_sessions']['Insert'];
+type PodcastSessionUpdate = Database['public']['Tables']['podcast_sessions']['Update'];
+
 
 // Data models for podcasts
 export interface Podcast {
@@ -63,7 +81,20 @@ export const PodcastDatabaseService = {
       .order('title');
     
     if (error) throw new Error(`Failed to fetch podcasts: ${error.message}`);
-    return data || [];
+    return (data || []).map(p => ({
+      id: p.id,
+      title: p.title,
+      description: p.description || undefined,
+      creator: p.creator,
+      thumbnail_url: p.thumbnail_url,
+      rss_url: p.rss_url || undefined,
+      website_url: p.website_url || undefined,
+      language: p.language || 'en',
+      category: p.category || undefined,
+      total_episodes: p.total_episodes || 0,
+      created_at: p.created_at,
+      updated_at: p.updated_at
+    }));
   },
 
   async updateEpisodeProgress(episodeId: string, lastPositionSeconds: number): Promise<void> {
@@ -75,7 +106,7 @@ export const PodcastDatabaseService = {
       .update({ 
         last_position_seconds: validPosition,
         updated_at: new Date().toISOString()
-      } as any)
+      } as PodcastEpisodeUpdate)
       .eq('id', episodeId);
     if (error) throw new Error(`Failed to update episode progress: ${error.message}`);
   },
@@ -83,12 +114,25 @@ export const PodcastDatabaseService = {
   async createPodcast(podcast: Omit<Podcast, 'id' | 'created_at' | 'updated_at'>): Promise<Podcast> {
     const { data, error } = await supabase
       .from('podcasts')
-      .insert(podcast)
+      .insert(podcast as PodcastInsert)
       .select()
       .single();
     
     if (error) throw new Error(`Failed to create podcast: ${error.message}`);
-    return data;
+    return {
+      id: data.id,
+      title: data.title,
+      description: data.description || undefined,
+      creator: data.creator,
+      thumbnail_url: data.thumbnail_url,
+      rss_url: data.rss_url || undefined,
+      website_url: data.website_url || undefined,
+      language: data.language || 'en',
+      category: data.category || undefined,
+      total_episodes: data.total_episodes || 0,
+      created_at: data.created_at,
+      updated_at: data.updated_at
+    };
   },
 
   async createEpisode(episode: Omit<PodcastEpisode, 'id' | 'created_at' | 'updated_at' | 'last_position_seconds' | 'is_completed'>): Promise<PodcastEpisode> {
@@ -98,12 +142,27 @@ export const PodcastDatabaseService = {
         ...episode,
         last_position_seconds: 0, // Initialize new field
         is_completed: false // Initialize new field
-      })
+      } as PodcastEpisodeInsert)
       .select()
       .single();
     
     if (error) throw new Error(`Failed to create episode: ${error.message}`);
-    return data;
+    return {
+      id: data.id,
+      podcast_id: data.podcast_id,
+      title: data.title,
+      description: data.description || undefined,
+      audio_url: data.audio_url,
+      duration_seconds: data.duration_seconds || 0,
+      episode_number: data.episode_number || undefined,
+      season_number: data.season_number || undefined,
+      publish_date: data.publish_date || undefined,
+      thumbnail_url: data.thumbnail_url || undefined,
+      last_position_seconds: data.last_position_seconds || 0,
+      is_completed: data.is_completed || false,
+      created_at: data.created_at,
+      updated_at: data.updated_at
+    };
   },
 
   async importPodcastWithEpisodes(
@@ -116,7 +175,7 @@ export const PodcastDatabaseService = {
         .from('podcasts')
         .select('*')
         .eq('rss_url', podcastData.rss_url)
-        .single();
+        .maybeSingle(); // Use maybeSingle to handle no results gracefully
       
       if (existing) {
         throw new Error('Podcast already exists in your library');
@@ -132,7 +191,7 @@ export const PodcastDatabaseService = {
     
     for (let i = 0; i < episodesData.length; i += batchSize) {
       const batch = episodesData.slice(i, i + batchSize);
-      const episodesToInsert = batch.map(ep => ({
+      const episodesToInsert: PodcastEpisodeInsert[] = batch.map(ep => ({
         ...ep,
         podcast_id: podcast.id,
         last_position_seconds: 0, // Initialize new field
@@ -151,9 +210,20 @@ export const PodcastDatabaseService = {
 
       if (data) {
         episodes.push(...data.map(ep => ({
-          ...ep,
+          id: ep.id,
+          podcast_id: ep.podcast_id,
+          title: ep.title,
+          description: ep.description || undefined,
+          audio_url: ep.audio_url,
+          duration_seconds: ep.duration_seconds || 0,
+          episode_number: ep.episode_number || undefined,
+          season_number: ep.season_number || undefined,
+          publish_date: ep.publish_date || undefined,
+          thumbnail_url: ep.thumbnail_url || undefined,
           last_position_seconds: ep.last_position_seconds || 0,
-          is_completed: ep.is_completed || false
+          is_completed: ep.is_completed || false,
+          created_at: ep.created_at,
+          updated_at: ep.updated_at
         })));
       }
     }
@@ -166,13 +236,26 @@ export const PodcastDatabaseService = {
       .from('podcasts')
       .select('*')
       .eq('id', id)
-      .single();
+      .maybeSingle(); // Use maybeSingle to handle no results gracefully
     
     if (error) {
       if (error.code === 'PGRST116') return undefined;
       throw new Error(`Failed to fetch podcast: ${error.message}`);
     }
-    return data;
+    return data ? {
+      id: data.id,
+      title: data.title,
+      description: data.description || undefined,
+      creator: data.creator,
+      thumbnail_url: data.thumbnail_url,
+      rss_url: data.rss_url || undefined,
+      website_url: data.website_url || undefined,
+      language: data.language || 'en',
+      category: data.category || undefined,
+      total_episodes: data.total_episodes || 0,
+      created_at: data.created_at,
+      updated_at: data.updated_at
+    } : undefined;
   },
 
   // Episode operations
@@ -188,9 +271,34 @@ export const PodcastDatabaseService = {
     
     if (error) throw new Error(`Failed to fetch episodes: ${error.message}`);
     return (data || []).map(ep => ({
-      ...ep,
+      id: ep.id,
+      podcast_id: ep.podcast_id,
+      title: ep.title,
+      description: ep.description || undefined,
+      audio_url: ep.audio_url,
+      duration_seconds: ep.duration_seconds || 0,
+      episode_number: ep.episode_number || undefined,
+      season_number: ep.season_number || undefined,
+      publish_date: ep.publish_date || undefined,
+      thumbnail_url: ep.thumbnail_url || undefined,
       last_position_seconds: ep.last_position_seconds || 0,
-      is_completed: ep.is_completed || false
+      is_completed: ep.is_completed || false,
+      created_at: ep.created_at,
+      updated_at: ep.updated_at,
+      podcast: ep.podcast ? {
+        id: ep.podcast.id,
+        title: ep.podcast.title,
+        description: ep.podcast.description || undefined,
+        creator: ep.podcast.creator,
+        thumbnail_url: ep.podcast.thumbnail_url,
+        rss_url: ep.podcast.rss_url || undefined,
+        website_url: ep.podcast.website_url || undefined,
+        language: ep.podcast.language || 'en',
+        category: ep.podcast.category || undefined,
+        total_episodes: ep.podcast.total_episodes || 0,
+        created_at: ep.podcast.created_at,
+        updated_at: ep.podcast.updated_at
+      } : undefined
     }));
   },
 
@@ -202,31 +310,79 @@ export const PodcastDatabaseService = {
         podcast:podcasts(*)
       `)
       .eq('id', id)
-      .single();
+      .maybeSingle(); // Use maybeSingle to handle no results gracefully
     
     if (error) {
       if (error.code === 'PGRST116') return undefined;
       throw new Error(`Failed to fetch episode: ${error.message}`);
     }
     return data ? {
-      ...data,
+      id: data.id,
+      podcast_id: data.podcast_id,
+      title: data.title,
+      description: data.description || undefined,
+      audio_url: data.audio_url,
+      duration_seconds: data.duration_seconds || 0,
+      episode_number: data.episode_number || undefined,
+      season_number: data.season_number || undefined,
+      publish_date: data.publish_date || undefined,
+      thumbnail_url: data.thumbnail_url || undefined,
       last_position_seconds: data.last_position_seconds || 0,
-      is_completed: data.is_completed || false
+      is_completed: data.is_completed || false,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+      podcast: data.podcast ? {
+        id: data.podcast.id,
+        title: data.podcast.title,
+        description: data.podcast.description || undefined,
+        creator: data.podcast.creator,
+        thumbnail_url: data.podcast.thumbnail_url,
+        rss_url: data.podcast.rss_url || undefined,
+        website_url: data.podcast.website_url || undefined,
+        language: data.podcast.language || 'en',
+        category: data.podcast.category || undefined,
+        total_episodes: data.podcast.total_episodes || 0,
+        created_at: data.podcast.created_at,
+        updated_at: data.podcast.updated_at
+      } : undefined
     } : undefined;
   },
 
   // Subscription operations
   async getUserSubscriptions(): Promise<PodcastSubscription[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
     const { data, error } = await supabase
       .from('podcast_subscriptions')
       .select(`
         *,
         podcast:podcasts(*)
       `)
+      .eq('user_id', user.id)
       .order('subscribed_at', { ascending: false });
     
     if (error) throw new Error(`Failed to fetch subscriptions: ${error.message}`);
-    return data || [];
+    return (data || []).map(sub => ({
+      id: sub.id,
+      user_id: sub.user_id,
+      podcast_id: sub.podcast_id,
+      subscribed_at: sub.subscribed_at,
+      podcast: sub.podcast ? {
+        id: sub.podcast.id,
+        title: sub.podcast.title,
+        description: sub.podcast.description || undefined,
+        creator: sub.podcast.creator,
+        thumbnail_url: sub.podcast.thumbnail_url,
+        rss_url: sub.podcast.rss_url || undefined,
+        website_url: sub.podcast.website_url || undefined,
+        language: sub.podcast.language || 'en',
+        category: sub.podcast.category || undefined,
+        total_episodes: sub.podcast.total_episodes || 0,
+        created_at: sub.podcast.created_at,
+        updated_at: sub.podcast.updated_at
+      } : undefined
+    }));
   },
 
   async subscribeToPodcast(podcastId: string): Promise<void> {
@@ -238,7 +394,7 @@ export const PodcastDatabaseService = {
       .insert({
         user_id: user.id,
         podcast_id: podcastId
-      });
+      } as PodcastSubscriptionInsert);
     
     if (error) throw new Error(`Failed to subscribe: ${error.message}`);
   },
@@ -265,7 +421,7 @@ export const PodcastDatabaseService = {
       .select('id')
       .eq('user_id', user.id)
       .eq('podcast_id', podcastId)
-      .single();
+      .maybeSingle(); // Use maybeSingle to handle no results gracefully
     
     if (error && error.code !== 'PGRST116') {
       throw new Error(`Failed to check subscription: ${error.message}`);
@@ -292,7 +448,17 @@ export const PodcastDatabaseService = {
 
     // If there's an active session, return it instead of creating a new one
     if (existingSession) {
-      return existingSession;
+      return {
+        id: existingSession.id,
+        user_id: existingSession.user_id,
+        episode_id: existingSession.episode_id,
+        seconds_listened: existingSession.seconds_listened || 0,
+        avg_playback_rate: existingSession.avg_playback_rate || 1.0,
+        started_at: existingSession.started_at || undefined,
+        ended_at: existingSession.ended_at || undefined,
+        source: existingSession.source || 'web',
+        created_at: existingSession.created_at
+      };
     }
 
     const { data, error } = await supabase
@@ -303,19 +469,29 @@ export const PodcastDatabaseService = {
         seconds_listened: 0,
         avg_playback_rate: 1.0,
         source: 'web'
-      })
+      } as PodcastSessionInsert)
       .select()
       .single();
     
     if (error) throw new Error(`Failed to start session: ${error.message}`);
-    return data;
+    return {
+      id: data.id,
+      user_id: data.user_id,
+      episode_id: data.episode_id,
+      seconds_listened: data.seconds_listened || 0,
+      avg_playback_rate: data.avg_playback_rate || 1.0,
+      started_at: data.started_at || undefined,
+      ended_at: data.ended_at || undefined,
+      source: data.source || 'web',
+      created_at: data.created_at
+    };
   },
 
   async updateListenSession(sessionId: string, updates: Partial<PodcastSession>): Promise<void> {
     if (!sessionId) return;
     
     // Validate updates
-    const validUpdates: any = {};
+    const validUpdates: PodcastSessionUpdate = {};
     
     if (updates.seconds_listened !== undefined) {
       const validSeconds = Math.max(0, Math.floor(updates.seconds_listened || 0));
@@ -364,7 +540,7 @@ export const PodcastDatabaseService = {
       .update({
         seconds_listened: validSeconds,
         ended_at: new Date().toISOString()
-      } as any)
+      } as PodcastSessionUpdate)
       .eq('id', sessionId)
       .eq('user_id', user.id) // Ensure user can only end their own sessions
       .select('*');
@@ -385,14 +561,28 @@ export const PodcastDatabaseService = {
   },
 
   async getListenSessionsForEpisode(episodeId: string): Promise<PodcastSession[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
     const { data, error } = await supabase
       .from('podcast_sessions')
       .select('*')
       .eq('episode_id', episodeId)
+      .eq('user_id', user.id) // Ensure user can only see their own sessions
       .order('started_at', { ascending: false });
     
     if (error) throw new Error(`Failed to fetch sessions: ${error.message}`);
-    return data || [];
+    return (data || []).map(session => ({
+      id: session.id,
+      user_id: session.user_id,
+      episode_id: session.episode_id,
+      seconds_listened: session.seconds_listened || 0,
+      avg_playback_rate: session.avg_playback_rate || 1.0,
+      started_at: session.started_at || undefined,
+      ended_at: session.ended_at || undefined,
+      source: session.source || 'web',
+      created_at: session.created_at
+    }));
   },
 
   async getTotalListenTimeForEpisode(episodeId: string): Promise<number> {
@@ -407,11 +597,17 @@ export const PodcastDatabaseService = {
     if (!user) return 0;
 
     // First try to get position from episode record
-    const { data: episodeData } = await supabase
+    const { data: episodeData, error: episodeError } = await supabase
       .from('podcast_episodes')
       .select('last_position_seconds')
       .eq('id', episodeId)
       .single();
+    
+    if (episodeError) {
+      console.error('Error fetching episode last position:', episodeError);
+      // Fallback to 0 if there's an error fetching episode data
+      return 0;
+    }
     
     if (episodeData?.last_position_seconds && episodeData.last_position_seconds > 0) {
       return Math.max(0, Math.floor(episodeData.last_position_seconds));
@@ -431,18 +627,22 @@ export const PodcastDatabaseService = {
   },
 
   async markEpisodeAsCompleted(episodeId: string, isCompleted: boolean = true): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
     // Check if already completed to avoid unnecessary updates
-    const { data: currentEpisode } = await supabase
+    const { data: currentEpisode, error: fetchError } = await supabase
       .from('podcast_episodes')
       .select('is_completed')
       .eq('id', episodeId)
       .single();
       
+    if (fetchError && fetchError.code !== 'PGRST116') throw fetchError; // Handle actual errors
     if (currentEpisode?.is_completed === isCompleted) return; // Already in desired state
 
     const { error } = await supabase
       .from('podcast_episodes')
-      .update({ is_completed: isCompleted } as any)
+      .update({ is_completed: isCompleted } as PodcastEpisodeUpdate)
       .eq('id', episodeId);
     
     if (error) throw new Error(`Failed to mark episode as completed: ${error.message}`);
@@ -460,7 +660,7 @@ export const PodcastDatabaseService = {
   },
 
   async createEpisodes(episodes: Omit<PodcastEpisode, 'id' | 'created_at' | 'updated_at' | 'last_position_seconds' | 'is_completed'>[]): Promise<PodcastEpisode[]> {
-    const episodesToInsert = episodes.map(ep => ({
+    const episodesToInsert: PodcastEpisodeInsert[] = episodes.map(ep => ({
       ...ep,
       last_position_seconds: 0,
       is_completed: false
@@ -473,9 +673,20 @@ export const PodcastDatabaseService = {
     
     if (error) throw new Error(`Failed to create episodes: ${error.message}`);
     return (data || []).map(ep => ({
-      ...ep,
+      id: ep.id,
+      podcast_id: ep.podcast_id,
+      title: ep.title,
+      description: ep.description || undefined,
+      audio_url: ep.audio_url,
+      duration_seconds: ep.duration_seconds || 0,
+      episode_number: ep.episode_number || undefined,
+      season_number: ep.season_number || undefined,
+      publish_date: ep.publish_date || undefined,
+      thumbnail_url: ep.thumbnail_url || undefined,
       last_position_seconds: ep.last_position_seconds || 0,
-      is_completed: ep.is_completed || false
+      is_completed: ep.is_completed || false,
+      created_at: ep.created_at,
+      updated_at: ep.updated_at
     }));
   }
 };

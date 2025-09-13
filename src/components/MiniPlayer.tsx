@@ -8,9 +8,9 @@ import { PodcastDatabaseService } from '@/lib/podcastDatabase';
 import { DatabaseService } from '@/lib/database';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 import { formatDuration } from '@/lib/utils';
-import { toast } from 'sonner';
+import { toast as sonnerToast } from 'sonner'; // Use sonner toast for general messages
 import { cn } from '@/lib/utils';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast'; // Use shadcn toast for specific UI toasts
 import { usePodcastPlayer } from '@/hooks/usePodcastPlayer'; // Import new hook
 import { useYouTubePlayer } from '@/hooks/useYouTubePlayer'; // Import new hook
 
@@ -22,7 +22,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [localDuration, setLocalDuration] = useState(0);
   const [localPosition, setLocalPosition] = useState(0);
-  const { toast } = useToast();
+  const { toast } = useToast(); // For shadcn toasts
 
   const {
     current,
@@ -104,7 +104,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
               ...current,
               title: ep.title,
               thumbnailUrl: ep.thumbnail_url || '',
-              creator: ep.podcast?.creator || ep.creator,
+              creator: ep.podcast?.creator || ep.creator, // Corrected access to creator
               durationSeconds: ep.duration_seconds,
               lastPositionSeconds: ep.last_position_seconds,
               audioUrl: ep.audio_url, // Ensure audioUrl is updated in current

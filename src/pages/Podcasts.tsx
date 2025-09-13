@@ -20,7 +20,8 @@ import { cn, formatDuration } from '@/lib/utils';
 import { PodcastDatabaseService, type Podcast, type PodcastEpisode, type PodcastSubscription } from '@/lib/podcastDatabase';
 import { podcastApiService, type PodcastSearchResult } from '@/lib/podcastApi';
 import { usePlayerStore } from '@/store/playerStore'; // Corrected import
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast'; // For shadcn toasts
+import { toast as sonnerToast } from 'sonner'; // For sonner toasts
 
 export function Podcasts() {
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
@@ -38,7 +39,7 @@ export function Podcasts() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [importingPodcast, setImportingPodcast] = useState<string | null>(null);
   const [manualRssUrl, setManualRssUrl] = useState('');
-  const { toast } = useToast();
+  const { toast } = useToast(); // shadcn toast
   const player = usePlayerStore();
 
   // Load initial data
@@ -149,13 +150,13 @@ export function Podcasts() {
           const updatedEpisodes = await PodcastDatabaseService.getEpisodesForPodcast(selectedPodcast.id);
           setEpisodes(updatedEpisodes);
           
-          toast({
+          sonnerToast.success({ // Changed to sonnerToast
             title: "Episodes Updated",
             description: `Added ${uniqueNewEpisodes.length} new episodes`,
           });
         } else {
           setHasMoreEpisodes(false);
-          toast({
+          sonnerToast.info({ // Changed to sonnerToast
             title: "No New Episodes",
             description: "All available episodes are already loaded",
           });
@@ -181,7 +182,7 @@ export function Podcasts() {
       const updatedSubscriptions = await PodcastDatabaseService.getUserSubscriptions();
       setSubscriptions(updatedSubscriptions);
       
-      toast({
+      sonnerToast.success({ // Changed to sonnerToast
         title: "Subscribed!",
         description: `You're now subscribed to ${podcast.title}`,
       });
@@ -203,7 +204,7 @@ export function Podcasts() {
       const updatedSubscriptions = await PodcastDatabaseService.getUserSubscriptions();
       setSubscriptions(updatedSubscriptions);
       
-      toast({
+      sonnerToast.info({ // Changed to sonnerToast
         title: "Unsubscribed",
         description: `You've unsubscribed from ${podcast.title}`,
       });
@@ -328,7 +329,7 @@ export function Podcasts() {
       setPodcasts(updatedPodcasts);
       setSubscriptions(updatedSubscriptions);
       
-      toast({
+      sonnerToast.success({ // Changed to sonnerToast
         title: "Podcast Added!",
         description: `${podcast.title} has been added to your library with ${importedEpisodes.length} episodes.`,
       });
@@ -386,7 +387,7 @@ export function Podcasts() {
       lastPositionSeconds: episode.last_position_seconds,
       audioUrl: episode.audio_url, // Pass audioUrl for podcast
     });
-    toast.success(`"${episode.title}" added to play next.`);
+    sonnerToast.success(`"${episode.title}" added to play next.`); // Changed to sonnerToast
   };
 
   const handleEnqueueLastEpisode = (episode: PodcastEpisode) => {
@@ -400,7 +401,7 @@ export function Podcasts() {
       lastPositionSeconds: episode.last_position_seconds,
       audioUrl: episode.audio_url, // Pass audioUrl for podcast
     });
-    toast.success(`"${episode.title}" added to end of queue.`);
+    sonnerToast.success(`"${episode.title}" added to end of queue.`); // Changed to sonnerToast
   };
 
   if (loading) {
@@ -571,7 +572,7 @@ export function Podcasts() {
                         setSubscriptions(updatedSubscriptions);
                         // Clear input
                         setManualRssUrl('');
-                        toast({ title: 'Podcast Added', description: created.podcast.title });
+                        sonnerToast.success({ title: 'Podcast Added', description: created.podcast.title }); // Changed to sonnerToast
                       } catch (error) {
                         console.error('Manual RSS import error:', error);
                         toast({

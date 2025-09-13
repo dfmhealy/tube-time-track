@@ -145,7 +145,7 @@ export const usePodcastPlayer = ({
             toast({
               title: "Autoplay Blocked",
               description: "Autoplay blocked. Tap play to listen.",
-              variant: "info"
+              variant: "default" // Changed from "info" to "default"
             });
             pause(); // Update store state to paused
           } else {

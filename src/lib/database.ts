@@ -1,4 +1,24 @@
 import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
+
+// Re-export types for convenience
+type VideoRow = Database['public']['Tables']['videos']['Row'];
+type VideoInsert = Database['public']['Tables']['videos']['Insert'];
+type VideoUpdate = Database['public']['Tables']['videos']['Update'];
+
+type WatchSessionRow = Database['public']['Tables']['watch_sessions']['Row'];
+type WatchSessionInsert = Database['public']['Tables']['watch_sessions']['Insert'];
+type WatchSessionUpdate = Database['public']['Tables']['watch_sessions']['Update'];
+
+type UserStatsRow = Database['public']['Tables']['user_stats']['Row'];
+type UserStatsInsert = Database['public']['Tables']['user_stats']['Insert'];
+type UserStatsUpdate = Database['public']['Tables']['user_stats']['Update'];
+
+type UserPreferencesRow = Database['public']['Tables']['user_preferences']['Row'];
+type UserPreferencesInsert = Database['public']['Tables']['user_preferences']['Insert'];
+type UserPreferencesUpdate = Database['public']['Tables']['user_preferences']['Update'];
+
+type VideoChannelSubscriptionInsert = Database['public']['Tables']['video_channel_subscriptions']['Insert'];
 
 // Data Models
 export interface Video {
@@ -32,6 +52,7 @@ export interface UserStats {
   dailyGoalSeconds: number;
   lastWatchedAt: string | null;
   streakDays: number;
+  updatedAt?: string; // Added updated_at to UserStats interface
 }
 
 export interface UserPreferences {
@@ -43,29 +64,43 @@ export interface UserPreferences {
   notificationsEnabled: boolean;
 }
 
-// Database utility functions
+// Helper types for database operations
+type VideoInput = Omit<VideoInsert, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'watch_seconds' | 'last_watched_at' | 'last_position_seconds' | 'is_completed'>;
+type WatchSessionInput = Omit<WatchSessionInsert, 'id' | 'created_at' | 'updated_at'>;
+type UserStatsInput = Omit<UserStatsInsert, 'id' | 'user_id' | 'created_at' | 'updated_at'>;
+type UserPreferencesInput = Omit<UserPreferencesInsert, 'id' | 'user_id' | 'created_at' | 'updated_at'>;
+
+
+// Helper function to get current user ID
+const getUserId = async (): Promise<string> => {
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) throw new Error('User not authenticated');
+  return user.id;
+};
+
 export const DatabaseService = {
   // Video operations
-  async addVideo(video: Omit<Video, 'id' | 'watchSeconds' | 'lastWatchedAt' | 'lastPositionSeconds' | 'isCompleted'>): Promise<Video> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
-
+  async addVideo(video: VideoInput): Promise<Video> {
+    const userId = await getUserId();
+    
+    const videoData: VideoInsert = {
+      user_id: userId,
+      youtube_id: video.youtubeId,
+      title: video.title,
+      channel_title: video.channelTitle,
+      duration_seconds: video.durationSeconds,
+      thumbnail_url: video.thumbnailUrl,
+      tags: video.tags,
+      added_at: video.addedAt,
+      watch_seconds: 0,
+      last_watched_at: null,
+      last_position_seconds: 0,
+      is_completed: false
+    };
+    
     const { data, error } = await supabase
       .from('videos')
-      .insert({
-        user_id: user.id,
-        youtube_id: video.youtubeId,
-        title: video.title,
-        channel_title: video.channelTitle,
-        duration_seconds: video.durationSeconds,
-        thumbnail_url: video.thumbnailUrl,
-        tags: video.tags,
-        added_at: video.addedAt,
-        watch_seconds: 0,
-        last_watched_at: null,
-        last_position_seconds: 0, // Initialize new field
-        is_completed: false // Initialize new field
-      })
+      .insert(videoData)
       .select()
       .single();
 
@@ -76,14 +111,14 @@ export const DatabaseService = {
       youtubeId: data.youtube_id,
       title: data.title,
       channelTitle: data.channel_title,
-      durationSeconds: data.duration_seconds,
+      durationSeconds: data.duration_seconds || 0,
       thumbnailUrl: data.thumbnail_url,
-      tags: data.tags,
-      addedAt: data.added_at,
-      watchSeconds: data.watch_seconds,
+      tags: data.tags || [],
+      addedAt: data.added_at || '',
+      watchSeconds: data.watch_seconds || 0,
       lastWatchedAt: data.last_watched_at,
-      lastPositionSeconds: (data as any).last_position_seconds || 0,
-      isCompleted: (data as any).is_completed || false
+      lastPositionSeconds: data.last_position_seconds || 0,
+      isCompleted: data.is_completed || false
     };
   },
 
@@ -94,15 +129,12 @@ export const DatabaseService = {
     // Validate position value - ensure it's not negative or NaN
     const validPosition = Math.max(0, Math.floor(lastPositionSeconds || 0));
     
-    // Don't update if position is 0 (avoid unnecessary database calls)
-    // if (validPosition === 0) return; // Removed this check to allow resetting position
-
     const { error } = await supabase
       .from('videos')
       .update({ 
         last_position_seconds: validPosition,
         last_watched_at: new Date().toISOString()
-      } as any)
+      } as VideoUpdate)
       .eq('id', videoId)
       .eq('user_id', user.id);
 
@@ -110,10 +142,14 @@ export const DatabaseService = {
   },
 
   async getVideo(id: string): Promise<Video | undefined> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return undefined;
+
     const { data, error } = await supabase
       .from('videos')
       .select('*')
       .eq('id', id)
+      .eq('user_id', user.id)
       .maybeSingle();
 
     if (error || !data) return undefined;
@@ -123,14 +159,14 @@ export const DatabaseService = {
       youtubeId: data.youtube_id,
       title: data.title,
       channelTitle: data.channel_title,
-      durationSeconds: data.duration_seconds,
+      durationSeconds: data.duration_seconds || 0,
       thumbnailUrl: data.thumbnail_url,
-      tags: data.tags,
-      addedAt: data.added_at,
-      watchSeconds: data.watch_seconds,
+      tags: data.tags || [],
+      addedAt: data.added_at || '',
+      watchSeconds: data.watch_seconds || 0,
       lastWatchedAt: data.last_watched_at,
-      lastPositionSeconds: (data as any).last_position_seconds || 0,
-      isCompleted: (data as any).is_completed || false
+      lastPositionSeconds: data.last_position_seconds || 0,
+      isCompleted: data.is_completed || false
     };
   },
 
@@ -152,14 +188,14 @@ export const DatabaseService = {
       youtubeId: data.youtube_id,
       title: data.title,
       channelTitle: data.channel_title,
-      durationSeconds: data.duration_seconds,
+      durationSeconds: data.duration_seconds || 0,
       thumbnailUrl: data.thumbnail_url,
-      tags: data.tags,
-      addedAt: data.added_at,
-      watchSeconds: data.watch_seconds,
+      tags: data.tags || [],
+      addedAt: data.added_at || '',
+      watchSeconds: data.watch_seconds || 0,
       lastWatchedAt: data.last_watched_at,
-      lastPositionSeconds: (data as any).last_position_seconds || 0,
-      isCompleted: (data as any).is_completed || false
+      lastPositionSeconds: data.last_position_seconds || 0,
+      isCompleted: data.is_completed || false
     };
   },
 
@@ -180,14 +216,14 @@ export const DatabaseService = {
       youtubeId: video.youtube_id,
       title: video.title,
       channelTitle: video.channel_title,
-      durationSeconds: video.duration_seconds,
+      durationSeconds: video.duration_seconds || 0,
       thumbnailUrl: video.thumbnail_url,
-      tags: video.tags,
-      addedAt: video.added_at,
-      watchSeconds: video.watch_seconds,
+      tags: video.tags || [],
+      addedAt: video.added_at || '',
+      watchSeconds: video.watch_seconds || 0,
       lastWatchedAt: video.last_watched_at,
-      lastPositionSeconds: (video as any).last_position_seconds || 0,
-      isCompleted: (video as any).is_completed || false
+      lastPositionSeconds: video.last_position_seconds || 0,
+      isCompleted: video.is_completed || false
     }));
   },
 
@@ -208,14 +244,14 @@ export const DatabaseService = {
       youtubeId: video.youtube_id,
       title: video.title,
       channelTitle: video.channel_title,
-      durationSeconds: video.duration_seconds,
+      durationSeconds: video.duration_seconds || 0,
       thumbnailUrl: video.thumbnail_url,
-      tags: video.tags,
-      addedAt: video.added_at,
-      watchSeconds: video.watch_seconds,
+      tags: video.tags || [],
+      addedAt: video.added_at || '',
+      watchSeconds: video.watch_seconds || 0,
       lastWatchedAt: video.last_watched_at,
-      lastPositionSeconds: (video as any).last_position_seconds || 0,
-      isCompleted: (video as any).is_completed || false
+      lastPositionSeconds: video.last_position_seconds || 0,
+      isCompleted: video.is_completed || false
     }));
   },
 
@@ -241,85 +277,88 @@ export const DatabaseService = {
       youtubeId: video.youtube_id,
       title: video.title,
       channelTitle: video.channel_title,
-      durationSeconds: video.duration_seconds,
+      durationSeconds: video.duration_seconds || 0,
       thumbnailUrl: video.thumbnail_url,
-      tags: video.tags,
-      addedAt: video.added_at,
-      watchSeconds: video.watch_seconds,
+      tags: video.tags || [],
+      addedAt: video.added_at || '',
+      watchSeconds: video.watch_seconds || 0,
       lastWatchedAt: video.last_watched_at,
-      lastPositionSeconds: (video as any).last_position_seconds || 0,
-      isCompleted: (video as any).is_completed || false
+      lastPositionSeconds: video.last_position_seconds || 0,
+      isCompleted: video.is_completed || false
     }));
   },
 
   async deleteVideo(id: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
     const { error } = await supabase
       .from('videos')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', user.id); // Ensure user can only delete their own videos
 
     if (error) throw error;
   },
 
   // Watch session operations
-  async startWatchSession(videoId: string): Promise<WatchSession> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
+  async addWatchSession(sessionData: WatchSessionInput): Promise<{ data: WatchSession | null; error: any; }> {
+    const userId = await getUserId();
+    const now = new Date().toISOString();
 
-    // Check if there's already an active session for this video
-    const { data: existingSession } = await supabase
-      .from('watch_sessions')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('video_id', videoId)
-      .is('ended_at', null)
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    // If there's an active session, return it instead of creating a new one
-    if (existingSession) {
-      return {
-        id: existingSession.id,
-        videoId: existingSession.video_id,
-        startedAt: existingSession.started_at,
-        endedAt: existingSession.ended_at,
-        secondsWatched: existingSession.seconds_watched,
-        avgPlaybackRate: existingSession.avg_playback_rate,
-        source: existingSession.source
-      };
-    }
+    const sessionWithUser: WatchSessionInsert = {
+      ...sessionData,
+      user_id: userId,
+      created_at: now,
+      updated_at: now
+    };
 
     const { data, error } = await supabase
       .from('watch_sessions')
-      .insert({
-        user_id: user.id,
-        video_id: videoId,
-        started_at: new Date().toISOString(),
-        seconds_watched: 0,
-        avg_playback_rate: 1.0,
-        source: 'web'
-      })
+      .insert(sessionWithUser)
       .select()
       .single();
-
-    if (error) throw error;
-
-    return {
-      id: data.id,
-      videoId: data.video_id,
-      startedAt: data.started_at,
-      endedAt: data.ended_at,
-      secondsWatched: data.seconds_watched,
-      avgPlaybackRate: data.avg_playback_rate,
-      source: data.source
+    
+    return { 
+      data: data ? {
+        id: data.id,
+        videoId: data.video_id,
+        startedAt: data.started_at || '',
+        endedAt: data.ended_at,
+        secondsWatched: data.seconds_watched || 0,
+        avgPlaybackRate: data.avg_playback_rate || 1.0,
+        source: data.source || 'web'
+      } : null, 
+      error 
     };
   },
 
-  async updateWatchSession(sessionId: string, updates: Partial<WatchSession>): Promise<void> {
+  async startWatchSession(videoId: string): Promise<WatchSession> {
+    const userId = await getUserId();
+    const now = new Date().toISOString();
+    const sessionData: WatchSessionInput = {
+      user_id: userId, // user_id is required in WatchSessionInsert
+      video_id: videoId,
+      started_at: now,
+      seconds_watched: 0,
+      avg_playback_rate: 1,
+      source: 'web',
+      ended_at: null
+    };
+    
+    const { data, error } = await this.addWatchSession(sessionData);
+    if (error || !data) throw error || new Error('Failed to start watch session');
+    return data;
+
+  },
+
+  async updateWatchSession(
+    sessionId: string,
+    updates: Omit<Partial<WatchSession>, 'updatedAt'>
+  ): Promise<void> {
     if (!sessionId) return;
     
-    const updateData: any = {};
+    const updateData: WatchSessionUpdate = {};
     
     if (updates.secondsWatched !== undefined) {
       const validSeconds = Math.max(0, Math.floor(updates.secondsWatched || 0));
@@ -331,8 +370,11 @@ export const DatabaseService = {
     }
     if (updates.endedAt !== undefined) updateData.ended_at = updates.endedAt;
 
+    // Add updated_at timestamp
+    updateData.updated_at = new Date().toISOString();
+
     // Only update if we have valid data
-    if (Object.keys(updateData).length === 0) return;
+    if (Object.keys(updateData).length === 1 && updateData.updated_at) return; // Only updated_at, no other changes
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
@@ -355,34 +397,41 @@ export const DatabaseService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
     
-    const { error } = await supabase
+    const updateData: WatchSessionUpdate = {
+      ended_at: new Date().toISOString(),
+      seconds_watched: validSeconds,
+      updated_at: new Date().toISOString()
+    };
+    
+    const { error: updateError } = await supabase
       .from('watch_sessions')
-      .update({
-        ended_at: new Date().toISOString(),
-        seconds_watched: validSeconds
-      })
+      .update(updateData)
       .eq('id', sessionId)
       .eq('user_id', user.id); // Ensure user can only end their own sessions
 
-    if (error) throw error;
+    if (updateError) throw updateError;
   },
 
   async getWatchSessionsForVideo(videoId: string): Promise<WatchSession[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
     const { data, error } = await supabase
       .from('watch_sessions')
       .select('*')
-      .eq('video_id', videoId);
+      .eq('video_id', videoId)
+      .eq('user_id', user.id);
 
     if (error) return [];
 
     return data.map(session => ({
       id: session.id,
       videoId: session.video_id,
-      startedAt: session.started_at,
+      startedAt: session.started_at || '',
       endedAt: session.ended_at,
-      secondsWatched: session.seconds_watched,
-      avgPlaybackRate: session.avg_playback_rate,
-      source: session.source
+      secondsWatched: session.seconds_watched || 0,
+      avgPlaybackRate: session.avg_playback_rate || 1.0,
+      source: session.source || 'web'
     }));
   },
 
@@ -396,18 +445,19 @@ export const DatabaseService = {
     if (!user) throw new Error('User not authenticated');
 
     // Check if already completed to avoid unnecessary updates
-    const { data: currentVideo } = await supabase
+    const { data: currentVideo, error: fetchError } = await supabase
       .from('videos')
       .select('is_completed')
       .eq('id', videoId)
       .eq('user_id', user.id)
       .single();
       
+    if (fetchError && fetchError.code !== 'PGRST116') throw fetchError; // Handle actual errors
     if (currentVideo?.is_completed === isCompleted) return; // Already in desired state
 
     const { error } = await supabase
       .from('videos')
-      .update({ is_completed: isCompleted } as any)
+      .update({ is_completed: isCompleted } as VideoUpdate)
       .eq('id', videoId)
       .eq('user_id', user.id);
     
@@ -429,29 +479,30 @@ export const DatabaseService = {
 
     return {
       id: data.id,
-      totalSeconds: data.total_seconds,
+      totalSeconds: data.total_seconds || 0,
       dailyGoalSeconds: data.weekly_goal_seconds || 30 * 60, // Default 30 minutes (using existing column)
       lastWatchedAt: data.last_watched_at,
-      streakDays: data.streak_days
+      streakDays: data.streak_days || 0,
+      updatedAt: data.updated_at || undefined // Map updated_at
     };
   },
 
-  async updateUserStats(updates: Partial<UserStats>): Promise<void> {
+  async updateUserStats(updates: Partial<UserStatsInput>): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    const updateData: any = {};
-    if (updates.totalSeconds !== undefined) {
-      const validSeconds = Math.max(0, Math.floor(updates.totalSeconds || 0));
+    const updateData: UserStatsUpdate = {};
+    if (updates.total_seconds !== undefined) {
+      const validSeconds = Math.max(0, Math.floor(updates.total_seconds || 0));
       updateData.total_seconds = validSeconds;
     }
-    if (updates.dailyGoalSeconds !== undefined) {
-      const validGoal = Math.max(60, Math.floor(updates.dailyGoalSeconds || 60)); // Minimum 1 minute
+    if (updates.weekly_goal_seconds !== undefined) {
+      const validGoal = Math.max(60, Math.floor(updates.weekly_goal_seconds || 60)); // Minimum 1 minute
       updateData.weekly_goal_seconds = validGoal;
     }
-    if (updates.lastWatchedAt !== undefined) updateData.last_watched_at = updates.lastWatchedAt;
-    if (updates.streakDays !== undefined) {
-      const validStreak = Math.max(0, Math.floor(updates.streakDays || 0));
+    if (updates.last_watched_at !== undefined) updateData.last_watched_at = updates.last_watched_at;
+    if (updates.streak_days !== undefined) {
+      const validStreak = Math.max(0, Math.floor(updates.streak_days || 0));
       updateData.streak_days = validStreak;
     }
     
@@ -459,7 +510,7 @@ export const DatabaseService = {
     updateData.updated_at = new Date().toISOString();
 
     // Only update if we have valid data
-    if (Object.keys(updateData).length === 0) return;
+    if (Object.keys(updateData).length === 1 && updateData.updated_at) return; // Only updated_at, no other changes
 
     const { error } = await supabase
       .from('user_stats')
@@ -511,14 +562,14 @@ export const DatabaseService = {
     
     // Process video sessions
     (videoData || []).forEach(session => {
-      const date = new Date(session.started_at).toISOString().split('T')[0];
+      const date = new Date(session.started_at || '').toISOString().split('T')[0];
       const seconds = Math.max(0, session.seconds_watched || 0);
       dailyTotals[date] = (dailyTotals[date] || 0) + seconds;
     });
     
     // Process podcast sessions
     (podcastData || []).forEach(session => {
-      const date = new Date(session.started_at).toISOString().split('T')[0];
+      const date = new Date(session.started_at || '').toISOString().split('T')[0];
       const seconds = Math.max(0, session.seconds_listened || 0);
       dailyTotals[date] = (dailyTotals[date] || 0) + seconds;
     });
@@ -544,7 +595,7 @@ export const DatabaseService = {
 
     const { error } = await supabase
       .from('video_channel_subscriptions')
-      .insert({ user_id: user.id, channel_title: channelTitle } as any);
+      .insert({ user_id: user.id, channel_title: channelTitle } as VideoChannelSubscriptionInsert);
     if (error) throw error;
   },
 
@@ -605,11 +656,11 @@ export const DatabaseService = {
     return data.map(session => ({
       id: session.id,
       videoId: session.video_id,
-      startedAt: session.started_at,
+      startedAt: session.started_at || '',
       endedAt: session.ended_at,
-      secondsWatched: session.seconds_watched,
-      avgPlaybackRate: session.avg_playback_rate,
-      source: session.source
+      secondsWatched: session.seconds_watched || 0,
+      avgPlaybackRate: session.avg_playback_rate || 1.0,
+      source: session.source || 'web'
     }));
   },
 
@@ -628,24 +679,24 @@ export const DatabaseService = {
 
     return {
       id: data.id,
-      autoPlay: data.auto_play,
-      defaultPlaybackRate: data.default_playback_rate,
-      volumePreference: data.volume_preference,
-      theme: data.theme,
-      notificationsEnabled: data.notifications_enabled
+      autoPlay: data.auto_play || false,
+      defaultPlaybackRate: data.default_playback_rate || 1.0,
+      volumePreference: data.volume_preference || 1.0,
+      theme: data.theme || 'system',
+      notificationsEnabled: data.notifications_enabled || false
     };
   },
 
-  async updateUserPreferences(updates: Partial<UserPreferences>): Promise<void> {
+  async updateUserPreferences(updates: Partial<UserPreferencesInput>): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    const updateData: any = {};
-    if (updates.autoPlay !== undefined) updateData.auto_play = updates.autoPlay;
-    if (updates.defaultPlaybackRate !== undefined) updateData.default_playback_rate = updates.defaultPlaybackRate;
-    if (updates.volumePreference !== undefined) updateData.volume_preference = updates.volumePreference;
+    const updateData: UserPreferencesUpdate = {};
+    if (updates.auto_play !== undefined) updateData.auto_play = updates.auto_play;
+    if (updates.default_playback_rate !== undefined) updateData.default_playback_rate = updates.default_playback_rate;
+    if (updates.volume_preference !== undefined) updateData.volume_preference = updates.volume_preference;
     if (updates.theme !== undefined) updateData.theme = updates.theme;
-    if (updates.notificationsEnabled !== undefined) updateData.notifications_enabled = updates.notificationsEnabled;
+    if (updates.notifications_enabled !== undefined) updateData.notifications_enabled = updates.notifications_enabled;
 
     const { error } = await supabase
       .from('user_preferences')

@@ -22,6 +22,8 @@ export type Database = {
           duration_seconds: number | null
           episode_number: number | null
           id: string
+          is_completed: boolean | null
+          last_position_seconds: number | null
           podcast_id: string
           publish_date: string | null
           season_number: number | null
@@ -36,6 +38,8 @@ export type Database = {
           duration_seconds?: number | null
           episode_number?: number | null
           id?: string
+          is_completed?: boolean | null
+          last_position_seconds?: number | null
           podcast_id: string
           publish_date?: string | null
           season_number?: number | null
@@ -50,6 +54,8 @@ export type Database = {
           duration_seconds?: number | null
           episode_number?: number | null
           id?: string
+          is_completed?: boolean | null
+          last_position_seconds?: number | null
           podcast_id?: string
           publish_date?: string | null
           season_number?: number | null
@@ -284,12 +290,35 @@ export type Database = {
         }
         Relationships: []
       }
+      video_channel_subscriptions: { // Added this table
+        Row: {
+          id: string
+          user_id: string
+          channel_title: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          channel_title: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          channel_title?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       videos: {
         Row: {
           added_at: string | null
           channel_title: string
           duration_seconds: number | null
           id: string
+          is_completed: boolean | null
+          last_position_seconds: number | null
           last_watched_at: string | null
           tags: string[] | null
           thumbnail_url: string
@@ -303,6 +332,8 @@ export type Database = {
           channel_title: string
           duration_seconds?: number | null
           id?: string
+          is_completed?: boolean | null
+          last_position_seconds?: number | null
           last_watched_at?: string | null
           tags?: string[] | null
           thumbnail_url: string
@@ -316,6 +347,8 @@ export type Database = {
           channel_title?: string
           duration_seconds?: number | null
           id?: string
+          is_completed?: boolean | null
+          last_position_seconds?: number | null
           last_watched_at?: string | null
           tags?: string[] | null
           thumbnail_url?: string
