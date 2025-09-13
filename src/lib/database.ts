@@ -215,6 +215,39 @@ export const DatabaseService = {
     }));
   },
 
+  async getRecentVideos(limit = 4): Promise<Video[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from('videos')
+      .select('*')
+      .eq('user_id', user.id)
+      .not('last_watched_at', 'is', null)
+      .order('last_watched_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("Error fetching recent videos:", error);
+      return [];
+    }
+
+    return (data || []).map(video => ({
+      id: video.id,
+      youtubeId: video.youtube_id,
+      title: video.title,
+      channelTitle: video.channel_title,
+      durationSeconds: video.duration_seconds,
+      thumbnailUrl: video.thumbnail_url,
+      tags: video.tags,
+      addedAt: video.added_at,
+      watchSeconds: video.watch_seconds,
+      lastWatchedAt: video.last_watched_at,
+      lastPositionSeconds: (video as any).last_position_seconds || 0,
+      isCompleted: (video as any).is_completed || false
+    }));
+  },
+
   async deleteVideo(id: string): Promise<void> {
     const { error } = await supabase
       .from('videos')
