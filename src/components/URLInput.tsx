@@ -5,7 +5,7 @@ import { Plus, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { extractYouTubeId, getVideoInfoFromOEmbed, getThumbnailUrl } from '@/lib/youtube';
 import { DatabaseService } from '@/lib/database';
-import { useLibraryStore } from '@/store/appStore';
+import { useLibraryStore } from '@/store/libraryStore'; // Corrected import path
 import { cn } from '@/lib/utils';
 
 interface URLInputProps {

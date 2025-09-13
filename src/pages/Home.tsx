@@ -6,7 +6,7 @@ import { URLInput } from '@/components/URLInput';
 import { VideoCard } from '@/components/VideoCard';
 import { useAppStore } from '@/store/appStore'; // Keep useAppStore for general UI state
 import { useStatsStore } from '@/store/statsStore'; // Updated import
-import { useLibraryStore } from '@/store/libraryStore'; // Updated import
+import { useLibraryStore } from '@/store/libraryStore'; // Corrected import path
 import { DatabaseService } from '@/lib/database';
 import type { Video } from '@/lib/database';
 import { formatDuration } from '@/lib/utils';
