@@ -57,6 +57,44 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
     clearCurrent,
   });
 
+  // Sync with global position from player store
+  useEffect(() => {
+    setLocalPosition(positionSeconds);
+  }, [positionSeconds]);
+
+  // Get duration from YouTube player when available
+  useEffect(() => {
+    if (ytPlayerInstance.current && typeof ytPlayerInstance.current.getDuration === 'function') {
+      const duration = ytPlayerInstance.current.getDuration();
+      if (duration && duration > 0) {
+        setLocalDuration(duration);
+      }
+    }
+  }, [ytPlayerInstance.current, video?.id]);
+
+  // Periodically update duration and position from YouTube player
+  useEffect(() => {
+    if (!video || !ytPlayerInstance.current) return;
+
+    const updateInterval = setInterval(() => {
+      if (ytPlayerInstance.current && typeof ytPlayerInstance.current.getCurrentTime === 'function' && typeof ytPlayerInstance.current.getDuration === 'function') {
+        const currentTime = ytPlayerInstance.current.getCurrentTime();
+        const duration = ytPlayerInstance.current.getDuration();
+        
+        if (duration && duration > 0) {
+          setLocalDuration(duration);
+        }
+        
+        if (currentTime >= 0) {
+          setLocalPosition(currentTime);
+          setGlobalPosition(currentTime);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(updateInterval);
+  }, [video?.id, ytPlayerInstance.current, setGlobalPosition]);
+
   const handleSeekSlider = useCallback((vals: number[]) => {
     const newPos = vals[0];
     if (!Number.isFinite(newPos)) {
@@ -106,7 +144,18 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
     handleSeek(newTime);
   }, [localPosition, localDuration, handleSeek]);
 
+  const handlePlaybackRateChange = useCallback((rate: number) => {
+    setGlobalRate(rate);
+    if (ytPlayerInstance.current && typeof ytPlayerInstance.current.setPlaybackRate === 'function') {
+      ytPlayerInstance.current.setPlaybackRate(rate);
+    }
+  }, [setGlobalRate, ytPlayerInstance]);
+
   if (!video) return null;
+
+  // Use the larger of local duration or video duration from props
+  const displayDuration = Math.max(localDuration, video.durationSeconds || 0);
+  const displayPosition = localPosition;
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
@@ -132,6 +181,48 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
             {video.title}
           </div>
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <Button 
+                variant={playbackRate === 0.5 ? "default" : "ghost"} 
+                size="sm" 
+                onClick={() => handlePlaybackRateChange(0.5)}
+                className="text-xs px-2"
+              >
+                0.5x
+              </Button>
+              <Button 
+                variant={playbackRate === 1 ? "default" : "ghost"} 
+                size="sm" 
+                onClick={() => handlePlaybackRateChange(1)}
+                className="text-xs px-2"
+              >
+                1x
+              </Button>
+              <Button 
+                variant={playbackRate === 1.25 ? "default" : "ghost"} 
+                size="sm" 
+                onClick={() => handlePlaybackRateChange(1.25)}
+                className="text-xs px-2"
+              >
+                1.25x
+              </Button>
+              <Button 
+                variant={playbackRate === 1.5 ? "default" : "ghost"} 
+                size="sm" 
+                onClick={() => handlePlaybackRateChange(1.5)}
+                className="text-xs px-2"
+              >
+                1.5x
+              </Button>
+              <Button 
+                variant={playbackRate === 2 ? "default" : "ghost"} 
+                size="sm" 
+                onClick={() => handlePlaybackRateChange(2)}
+                className="text-xs px-2"
+              >
+                2x
+              </Button>
+            </div>
             <Button variant="ghost" size="icon" onClick={() => {
               if (ytPlayerInstance.current && typeof ytPlayerInstance.current.getIframe === 'function') {
                 const iframe = ytPlayerInstance.current.getIframe();
@@ -142,26 +233,23 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
             }}>
               <Maximize2 className="h-5 w-5" />
             </Button>
-            <Button variant="ghost" size="icon">
-              <Settings className="h-5 w-5" />
-            </Button>
           </div>
         </div>
 
         {/* Progress Bar */}
         <div className="flex items-center gap-2 mb-4">
-          <span className="text-sm text-muted-foreground min-w-0">
-            {formatDuration(localPosition)}
+          <span className="text-sm text-muted-foreground min-w-0 font-mono">
+            {formatDuration(displayPosition)}
           </span>
           <Slider
-            value={[localPosition]}
-            max={Math.max(1, localDuration)}
+            value={[displayPosition]}
+            max={Math.max(1, displayDuration)}
             step={1}
             onValueChange={handleSeekSlider}
             className="flex-1"
           />
-          <span className="text-sm text-muted-foreground min-w-0">
-            {formatDuration(localDuration)}
+          <span className="text-sm text-muted-foreground min-w-0 font-mono">
+            {formatDuration(displayDuration)}
           </span>
         </div>
 
