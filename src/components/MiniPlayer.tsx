@@ -4,13 +4,15 @@ import { Slider } from '@/components/ui/slider';
 import { Card } from '@/components/ui/card';
 import { Play, Pause, SkipForward, X, Volume2, VolumeX, HeadphonesIcon, Youtube, Maximize2, ListMusic } from 'lucide-react';
 import { usePlayerStore } from '@/store/playerStore';
-import { PodcastDatabaseService, type PodcastEpisode, type PodcastSession } from '@/lib/podcastDatabase';
-import { DatabaseService, type Video } from '@/lib/database';
+import { PodcastDatabaseService } from '@/lib/podcastDatabase';
+import { DatabaseService } from '@/lib/database';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
-import { formatDuration, getProxiedAudioUrl } from '@/lib/utils';
+import { formatDuration } from '@/lib/utils';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { usePodcastPlayer } from '@/hooks/usePodcastPlayer'; // Import new hook
+import { useYouTubePlayer } from '@/hooks/useYouTubePlayer'; // Import new hook
 
 interface MiniPlayerProps {
   youtubeIframeRef: React.RefObject<HTMLDivElement>;
@@ -19,9 +21,6 @@ interface MiniPlayerProps {
 export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const progressTimer = useRef<number | null>(null);
-  const ytPlayerInstance = useRef<any>(null); // Reference to the actual YouTube player object
-  const videoSessionIdRef = useRef<string | null>(null);
-  const [podcastSession, setPodcastSession] = useState<PodcastSession | null>(null);
   const [localDuration, setLocalDuration] = useState(0);
   const [localPosition, setLocalPosition] = useState(0);
   const { toast } = useToast();
@@ -30,8 +29,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
     current,
     isPlaying,
     next,
-    stop, // This stops playback but keeps current item
-    clearCurrent, // This stops playback and clears current item
+    clearCurrent,
     setPosition: setGlobalPos,
     setVolume: setGlobalVolume,
     setMuted: setGlobalMuted,
@@ -49,6 +47,38 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
 
   const isPodcast = current?.type === 'podcast';
   const isVideo = current?.type === 'video';
+
+  // Use custom hooks for media-specific logic
+  const { podcastSession } = usePodcastPlayer({
+    currentPodcast: isPodcast ? { id: current.id, audio_url: (current as any).audio_url, durationSeconds: current.durationSeconds } : null,
+    isPlaying,
+    volume,
+    muted,
+    playbackRate,
+    localPosition,
+    setLocalPosition,
+    setLocalDuration,
+    pause,
+    resume,
+    next,
+    clearCurrent,
+  });
+
+  const { ytPlayerInstance, videoSessionIdRef } = useYouTubePlayer({
+    currentVideo: isVideo ? { id: current.id, youtubeId: current.id, durationSeconds: current.durationSeconds } : null,
+    youtubeIframeRef,
+    isPlaying,
+    volume,
+    muted,
+    playbackRate,
+    localPosition,
+    setLocalPosition,
+    setLocalDuration,
+    pause,
+    resume,
+    next,
+    clearCurrent,
+  });
 
   // --- Media Session API ---
   useEffect(() => {
@@ -166,270 +196,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
     return () => { canceled = true; };
   }, [current?.id, current?.type]); // Re-run when current item changes
 
-  // --- Podcast (Audio) Playback Logic ---
-  useEffect(() => {
-    if (!isPodcast || !current || !audioRef.current) return;
-
-    const ep = current;
-    const audio = audioRef.current;
-
-    const tryPlayAudioWithProxies = async (url: string, initialPosition: number) => {
-      audio.currentTime = initialPosition;
-      audio.playbackRate = playbackRate;
-      audio.volume = muted ? 0 : volume;
-
-      const AUDIO_PROXY_COUNT = 3;
-      const urlsToTry = [url]; // Start with direct URL
-      for (let i = 0; i < AUDIO_PROXY_COUNT; i++) {
-        urlsToTry.push(getProxiedAudioUrl(url, i));
-      }
-
-      for (const currentUrl of urlsToTry) {
-        audio.src = currentUrl;
-        audio.load(); // Load the new source
-
-        try {
-          // Wait for the audio to be ready to play
-          await new Promise<void>((resolve, reject) => {
-            const onCanPlay = () => {
-              audio.removeEventListener('canplay', onCanPlay);
-              audio.removeEventListener('error', onError);
-              resolve();
-            };
-            const onError = (e: Event) => {
-              audio.removeEventListener('canplay', onCanPlay);
-              audio.removeEventListener('error', onError);
-              reject(new Error(`Audio load error: ${e.type}`));
-            };
-
-            audio.addEventListener('canplay', onCanPlay);
-            audio.addEventListener('error', onError);
-
-            // If already ready, resolve immediately
-            if (audio.readyState >= 3) { // HAVE_FUTURE_DATA or HAVE_ENOUGH_DATA
-              onCanPlay();
-            }
-          });
-
-          // Attempt to play
-          await audio.play();
-          console.log(`Podcast playback successful with URL: ${currentUrl}`);
-          return true; // Successfully played
-        } catch (e: any) {
-          console.warn(`Podcast playback failed with URL: ${currentUrl}`, e);
-          // Continue to next URL if this one failed
-        }
-      }
-      throw new Error('All podcast playback attempts failed.'); // If all URLs failed
-    };
-
-    const setupAudio = async () => {
-      try {
-        const s = await PodcastDatabaseService.startListenSession(ep.id);
-        setPodcastSession(s);
-      } catch (error) {
-        console.error('Failed to start podcast session:', error);
-        toast({
-          title: "Error",
-          description: "Failed to start podcast session.",
-          variant: "destructive"
-        });
-        clearCurrent();
-        return;
-      }
-
-      if (isPlaying) {
-        try {
-          await tryPlayAudioWithProxies(ep.audio_url, localPosition);
-        } catch (e: any) {
-          console.error("Podcast autoplay failed:", e);
-          toast({
-            title: "Autoplay Blocked",
-            description: "Autoplay blocked or media not supported. Tap play to listen.",
-            variant: "info"
-          });
-          pause(); // Set global state to paused if autoplay fails
-        }
-      }
-    };
-
-    setupAudio();
-
-    const handleAudioEnded = async () => {
-      if (podcastSession) {
-        try {
-          await PodcastDatabaseService.endListenSession(podcastSession.id, Math.floor(audio.currentTime));
-          await PodcastDatabaseService.markEpisodeAsCompleted(ep.id);
-        } catch (e) { console.error("Error ending podcast session:", e); }
-        setPodcastSession(null);
-      }
-      next();
-    };
-
-    audio.addEventListener('ended', handleAudioEnded);
-    audio.addEventListener('loadedmetadata', () => setLocalDuration(audio.duration));
-
-    return () => {
-      audio.removeEventListener('ended', handleAudioEnded);
-      audio.removeEventListener('loadedmetadata', () => setLocalDuration(audio.duration));
-      if (progressTimer.current) clearInterval(progressTimer.current);
-      progressTimer.current = null;
-      setPodcastSession(null);
-    };
-  }, [isPodcast, current?.id, localPosition]); // Re-run when podcast item or initial position changes
-
-  // --- Video (YouTube) Playback Logic ---
-  useEffect(() => {
-    if (!isVideo || !current || !youtubeIframeRef.current) return;
-
-    const videoItem = current;
-    const playerContainer = youtubeIframeRef.current;
-
-    const setupYouTubePlayer = async () => {
-      // Load YouTube API if needed
-      if (!(window as any).YT) {
-        await new Promise<void>((resolve) => {
-          const tag = document.createElement('script');
-          tag.src = 'https://www.youtube.com/iframe_api';
-          (window as any).onYouTubeIframeAPIReady = () => resolve();
-          document.body.appendChild(tag);
-        });
-      }
-
-      // Check if player already exists (e.g., moved from PlayerView)
-      let existingIframe = playerContainer.querySelector('iframe');
-      if (existingIframe) {
-        ytPlayerInstance.current = (window as any).YT.get(existingIframe.id);
-        // Ensure it's a child of the current container
-        if (existingIframe.parentElement !== playerContainer) {
-          playerContainer.appendChild(existingIframe);
-        }
-        // Update dimensions for mini-player
-        existingIframe.style.width = '100%';
-        existingIframe.style.height = '100%';
-      } else {
-        // Create new player if none exists
-        ytPlayerInstance.current = new (window as any).YT.Player(playerContainer, {
-          videoId: videoItem.id,
-          playerVars: {
-            autoplay: 0, // We control autoplay via playVideo()
-            controls: 0,
-            modestbranding: 1,
-            rel: 0,
-            showinfo: 0,
-            iv_load_policy: 3,
-            fs: 0, // No fullscreen in mini-player
-          },
-          events: {
-            onReady: (event: any) => {
-              ytPlayerInstance.current = event.target;
-              ytPlayerInstance.current.seekTo(localPosition, true);
-              ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
-              ytPlayerInstance.current.setPlaybackRate(playbackRate);
-              if (isPlaying) {
-                ytPlayerInstance.current.playVideo().catch((e: any) => {
-                  console.error("YT Autoplay failed:", e);
-                  toast({
-                    title: "Autoplay Blocked",
-                    description: "Autoplay blocked. Tap play to watch.",
-                    variant: "info"
-                  });
-                  pause();
-                });
-              }
-              setLocalDuration(ytPlayerInstance.current.getDuration());
-            },
-            onStateChange: (event: any) => {
-              const YT = (window as any).YT;
-              if (event.data === YT.PlayerState.ENDED) {
-                handleVideoEnded();
-              } else if (event.data === YT.PlayerState.PAUSED) {
-                pause();
-              } else if (event.data === YT.PlayerState.PLAYING) {
-                resume();
-              }
-            },
-            onError: (error: any) => {
-              console.error("YouTube Player Error:", error);
-              toast({
-                title: "Error",
-                description: "YouTube Player Error: Could not load video.",
-                variant: "destructive"
-              });
-              clearCurrent();
-            }
-          },
-        });
-      }
-
-      // Start watch session
-      try {
-        const s = await DatabaseService.startWatchSession(videoItem.id);
-        videoSessionIdRef.current = s.id;
-      } catch (error) {
-        console.error('Failed to start video watch session:', error);
-        toast({
-          title: "Error",
-          description: "Failed to start video session.",
-          variant: "destructive"
-        });
-        clearCurrent();
-      }
-    };
-
-    setupYouTubePlayer();
-
-    return () => {
-      if (progressTimer.current) clearInterval(progressTimer.current);
-      progressTimer.current = null;
-      videoSessionIdRef.current = null;
-      // Do NOT destroy the player here if it's just minimizing/expanding
-      // The iframe element is moved, not destroyed.
-      // Only destroy if clearCurrent is called and no longer needed.
-    };
-  }, [isVideo, current?.id, localPosition]); // Re-run when video item or initial position changes
-
-  // --- Global Playback State Sync (Audio & Video) ---
-  useEffect(() => {
-    // Sync podcast audio playback
-    if (isPodcast && audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.play().catch(e => console.error("Podcast playback failed:", e));
-      } else {
-        audioRef.current.pause();
-      }
-    }
-    // Sync YouTube video playback
-    if (isVideo && ytPlayerInstance.current) {
-      const YT = (window as any).YT;
-      if (isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PLAYING) {
-        try { ytPlayerInstance.current.playVideo(); } catch (e) { console.error("YT play failed:", e); }
-      } else if (!isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PAUSED) {
-        try { ytPlayerInstance.current.pauseVideo(); } catch (e) { console.error("YT pause failed:", e); }
-      }
-    }
-  }, [isPlaying, isPodcast, isVideo]);
-
-  // --- Volume/Mute Sync (Audio & Video) ---
-  useEffect(() => {
-    if (isPodcast && audioRef.current) {
-      audioRef.current.volume = muted ? 0 : volume;
-    }
-    if (isVideo && ytPlayerInstance.current) {
-      ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
-    }
-  }, [volume, muted, isPodcast, isVideo]);
-
-  // --- Playback Rate Sync (Audio & Video) ---
-  useEffect(() => {
-    if (isPodcast && audioRef.current) {
-      audioRef.current.playbackRate = playbackRate;
-    }
-    if (isVideo && ytPlayerInstance.current) {
-      ytPlayerInstance.current.setPlaybackRate(playbackRate);
-    }
-  }, [playbackRate, isPodcast, isVideo]);
-
   // --- Progress Tracking and Persistence (1-second interval) ---
   useEffect(() => {
     if (!current || (!isPodcast && !isVideo)) {
@@ -496,7 +262,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
       if (progressTimer.current) clearInterval(progressTimer.current);
       progressTimer.current = null;
     };
-  }, [current?.id, isPodcast, isVideo, isPlaying, podcastSession, videoSessionIdRef.current]);
+  }, [current?.id, isPodcast, isVideo, isPlaying, podcastSession, videoSessionIdRef.current, setLocalPosition, setGlobalPos, setLocalDuration]);
 
   // --- Persist Progress on Unload/Visibility Change ---
   useEffect(() => {
@@ -555,25 +321,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
     } else if (isVideo && ytPlayerInstance.current) {
       ytPlayerInstance.current.seekTo(newPos, true);
     }
-  }, [isPodcast, isVideo]);
+  }, [isPodcast, isVideo, setLocalPosition, setGlobalPos]);
 
   const handleToggleMute = useCallback(() => {
     setGlobalMuted(!muted);
-  }, [muted]);
-
-  const handleVideoEnded = async () => {
-    if (!current) return;
-    try {
-      if (videoSessionIdRef.current) {
-        await DatabaseService.endWatchSession(videoSessionIdRef.current, localDuration);
-      }
-      await DatabaseService.markVideoAsCompleted(current.id);
-      await DatabaseService.updateVideoProgress(current.id, localDuration);
-    } catch (e) {
-      console.error("Error ending video session:", e);
-    }
-    next();
-  };
+  }, [muted, setGlobalMuted]);
 
   const showMiniPlayer = !!current && (!isPlayerViewOpen || isMinimized);
 
@@ -666,7 +418,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
         <audio
           ref={audioRef}
           onLoadedMetadata={() => setLocalDuration(audioRef.current?.duration || 0)}
-          onEnded={() => { /* Handled by useEffect */ }}
+          onEnded={() => { /* Handled by useEffect in usePodcastPlayer */ }}
           preload="metadata"
         />
       )}
