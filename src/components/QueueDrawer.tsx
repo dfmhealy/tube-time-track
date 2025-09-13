@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Play, Trash2, ListMusic, X, GripVertical, HeadphonesIcon, Youtube } from 'lucide-react';
 import { cn, formatDuration } from '@/lib/utils';
-import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-paco/react-beautiful-dnd';
+import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'; // Corrected import path
 
 export const QueueDrawer: React.FC = () => {
   const {
