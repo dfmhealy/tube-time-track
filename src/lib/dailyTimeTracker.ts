@@ -2,7 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { DatabaseService } from './database';
 import { PodcastDatabaseService } from './podcastDatabase';
 import { streakTracker } from './streakTracker';
-import { useStatsStore } from '@/store/statsStore'; // Updated import
+import { useStatsStore } from '@/store/statsStore';
 
 export class DailyTimeTracker {
   private static instance: DailyTimeTracker;
@@ -10,8 +10,14 @@ export class DailyTimeTracker {
   private listeners: ((time: number) => void)[] = [];
   private lastUpdate: number = Date.now();
   private currentDate: string = new Date().toISOString().split('T')[0];
+  private updateTimeout: number | null = null;
 
-  private constructor() {}
+  private constructor() {
+    // Auto-refresh daily time every minute to catch date changes
+    setInterval(() => {
+      this.checkDateChange();
+    }, 60000);
+  }
 
   static getInstance(): DailyTimeTracker {
     if (!DailyTimeTracker.instance) {
@@ -20,21 +26,31 @@ export class DailyTimeTracker {
     return DailyTimeTracker.instance;
   }
 
+  private checkDateChange(): void {
+    const today = new Date().toISOString().split('T')[0];
+    if (this.currentDate !== today) {
+      console.log('Date changed, resetting daily time tracker');
+      this.currentDate = today;
+      this.dailyTime = 0;
+      this.loadDailyTime(); // Reload for new day
+    }
+  }
+
   async loadDailyTime(): Promise<number> {
     try {
       // Check if date has changed and reset if needed
-      const today = new Date().toISOString().split('T')[0];
-      if (this.currentDate !== today) {
-        this.currentDate = today;
-        this.dailyTime = 0;
-      }
+      this.checkDateChange();
 
       const now = new Date();
       const startOfDayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
       const endOfDayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString();
 
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return 0;
+      if (!user) {
+        this.dailyTime = 0;
+        this.notifyListeners();
+        return 0;
+      }
 
       // Get video watch sessions for today (only completed sessions)
       const { data: videoAgg, error: videoErr } = await supabase
@@ -67,7 +83,7 @@ export class DailyTimeTracker {
       return this.dailyTime;
     } catch (error) {
       console.error('Failed to load daily time:', error);
-      return 0;
+      return this.dailyTime; // Return current value on error
     }
   }
 
@@ -81,40 +97,40 @@ export class DailyTimeTracker {
     if (inc === 0) return; // Don't process zero increments
     
     // Check if date has changed and reset if needed
-    const today = new Date().toISOString().split('T')[0];
-    if (this.currentDate !== today) {
-      this.currentDate = today;
-      this.dailyTime = 0;
-    }
+    this.checkDateChange();
     
     const prevTotal = this.dailyTime;
     this.dailyTime += inc;
     this.lastUpdate = Date.now();
     this.notifyListeners();
     
-    // Update user stats in database (throttled to avoid excessive calls)
-    try {
-      const userStats = await DatabaseService.getUserStats();
-      if (userStats) {
-        // Only update stats every 10 seconds to reduce database load
-        const timeSinceLastUpdate = Date.now() - this.lastUpdate;
-        if (timeSinceLastUpdate > 10000 || this.dailyTime % 10 === 0) {
+    // Debounce database updates to reduce load
+    if (this.updateTimeout) {
+      clearTimeout(this.updateTimeout);
+    }
+    
+    this.updateTimeout = window.setTimeout(async () => {
+      try {
+        // Update user stats in database
+        const userStats = await DatabaseService.getUserStats();
+        if (userStats) {
           await DatabaseService.updateUserStats({
-            total_seconds: userStats.totalSeconds + inc, // Changed to snake_case
-            last_watched_at: new Date().toISOString() // Changed to snake_case
+            total_seconds: userStats.totalSeconds + inc,
+            last_watched_at: new Date().toISOString()
           });
+          
           // Update Zustand store
           useStatsStore.getState().updateTotalSeconds(inc);
-        }
 
-        // Check streak when crossing daily goal threshold
-        if (userStats.dailyGoalSeconds > 0) {
-          await streakTracker.achieveTodayIfCrossed(prevTotal, this.dailyTime, userStats.dailyGoalSeconds);
+          // Check streak when crossing daily goal threshold
+          if (userStats.dailyGoalSeconds > 0) {
+            await streakTracker.achieveTodayIfCrossed(prevTotal, this.dailyTime, userStats.dailyGoalSeconds);
+          }
         }
+      } catch (error) {
+        console.error('Failed to update user stats:', error);
       }
-    } catch (error) {
-      console.error('Failed to update user stats:', error);
-    }
+    }, 5000); // 5-second debounce
   }
 
   subscribe(listener: (time: number) => void): () => void {
