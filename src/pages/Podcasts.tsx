@@ -18,7 +18,6 @@ import {
 import { cn, formatDuration } from '@/lib/utils';
 import { PodcastDatabaseService, type Podcast, type PodcastEpisode, type PodcastSubscription } from '@/lib/podcastDatabase';
 import { podcastApiService, type PodcastSearchResult } from '@/lib/podcastApi';
-import { PodcastPlayer } from '@/components/PodcastPlayer';
 import { usePlayerStore } from '@/store/playerStore';
 import { useToast } from '@/hooks/use-toast';
 
@@ -27,7 +26,7 @@ export function Podcasts() {
   const [subscriptions, setSubscriptions] = useState<PodcastSubscription[]>([]);
   const [episodes, setEpisodes] = useState<PodcastEpisode[]>([]);
   const [episodesLoading, setEpisodesLoading] = useState(false);
-  const [currentEpisode, setCurrentEpisode] = useState<PodcastEpisode | null>(null);
+  const [selectedPodcast, setSelectedPodcast] = useState<Podcast | null>(null);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [loadingMoreEpisodes, setLoadingMoreEpisodes] = useState(false);
   const [hasMoreEpisodes, setHasMoreEpisodes] = useState(true);
@@ -35,11 +34,11 @@ export function Podcasts() {
   const [externalSearchQuery, setExternalSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PodcastSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPodcast, setSelectedPodcast] = useState<Podcast | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [importingPodcast, setImportingPodcast] = useState<string | null>(null);
   const [manualRssUrl, setManualRssUrl] = useState('');
   const { toast } = useToast();
+  const player = usePlayerStore();
 
   // Load initial data
   useEffect(() => {
@@ -114,7 +113,7 @@ export function Podcasts() {
           return a.episode_number - b.episode_number;
         }
         if (a.publish_date && b.publish_date) {
-          return new Date(a.publish_date).getTime() - new Date(b.publish_date).getTime();
+          return new Date(a.publish_date).getTime() - new Date(a.publish_date).getTime();
         }
         return 0;
       });
@@ -287,18 +286,7 @@ export function Podcasts() {
         const processBatch = async (batch: any[], delay: number) => {
           await new Promise(resolve => setTimeout(resolve, delay));
           try {
-            await PodcastDatabaseService.importPodcastWithEpisodes(
-              {
-                title: importedPodcast.title,
-                description: importedPodcast.description || '',
-                creator: importedPodcast.creator,
-                thumbnail_url: importedPodcast.thumbnail_url,
-                rss_url: importedPodcast.rss_url || '',
-                website_url: importedPodcast.website_url || '',
-                language: importedPodcast.language,
-                category: importedPodcast.category || '',
-                total_episodes: importedEpisodes.length
-              },
+            await PodcastDatabaseService.createEpisodes(
               batch.map(ep => ({
                 title: ep.title,
                 description: ep.description || '',
@@ -307,7 +295,8 @@ export function Podcasts() {
                 episode_number: ep.episode_number,
                 season_number: ep.season_number,
                 publish_date: ep.publish_date,
-                thumbnail_url: ep.thumbnail_url
+                thumbnail_url: ep.thumbnail_url,
+                podcast_id: podcast.id // Ensure podcast_id is set for new episodes
               }))
             );
           } catch (error) {
@@ -334,7 +323,7 @@ export function Podcasts() {
       
       toast({
         title: "Podcast Added!",
-        description: `${podcast.title} has been added to your library with ${episodes.length} episodes.`,
+        description: `${podcast.title} has been added to your library with ${importedEpisodes.length} episodes.`,
       });
       
       // Clear search results
@@ -766,7 +755,7 @@ export function Podcasts() {
                           <div className="flex items-start gap-4">
                             <div className="flex flex-col gap-2 mt-1">
                               <Button
-                                onClick={() => setCurrentEpisode(episode)}
+                                onClick={() => player.play({ type: 'podcast', id: episode.id })}
                                 size="sm"
                                 className="bg-primary hover:bg-primary/90"
                               >
@@ -776,17 +765,6 @@ export function Podcasts() {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  const player = usePlayerStore.getState();
-                                  player.play({ type: 'podcast', id: episode.id });
-                                }}
-                              >
-                                Play Now
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  const player = usePlayerStore.getState();
                                   // Check if already in queue
                                   if (!player.isInQueue(episode.id)) {
                                     player.enqueueNext({ type: 'podcast', id: episode.id });
@@ -808,7 +786,6 @@ export function Podcasts() {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  const player = usePlayerStore.getState();
                                   // Check if already in queue
                                   if (!player.isInQueue(episode.id)) {
                                     player.enqueueLast({ type: 'podcast', id: episode.id });
@@ -887,31 +864,6 @@ export function Podcasts() {
                 </CardContent>
               </Card>
             </div>
-          )}
-
-          {/* Podcast Player */}
-          {currentEpisode && (
-            <PodcastPlayer
-              episode={currentEpisode}
-              onClose={() => {
-                setCurrentEpisode(null);
-                // Refresh episodes to show updated completion status
-                if (selectedPodcast) {
-                  PodcastDatabaseService.getEpisodesForPodcast(selectedPodcast.id)
-                    .then(setEpisodes)
-                    .catch(console.error);
-                }
-              }}
-              onEpisodeUpdate={(updatedEpisode) => {
-                // Update the episode in the local episodes list while maintaining order
-                setEpisodes(prevEpisodes => {
-                  const updatedEpisodes = prevEpisodes.map(ep => 
-                    ep.id === updatedEpisode.id ? updatedEpisode : ep
-                  );
-                  return updatedEpisodes;
-                });
-              }}
-            />
           )}
         </div>
       </div>

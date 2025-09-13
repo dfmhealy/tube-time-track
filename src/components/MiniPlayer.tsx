@@ -79,18 +79,18 @@ export const MiniPlayer: React.FC = () => {
       const ep = meta.podcast;
 
       try {
-        // Get last known position with validation
         const lastPos = await PodcastDatabaseService.getLastPositionForEpisode(ep.id);
-        const validLastPos = Math.max(0, Math.min(lastPos || 0, (ep.duration_seconds || 0) - 10));
-        
-        if (validLastPos > 30) { // Only resume if more than 30 seconds in
-          audioRef.current.currentTime = validLastPos;
-          setPosition(validLastPos);
-          setGlobalPos(validLastPos);
-        } else {
-          setPosition(0);
-          setGlobalPos(0);
+        const mediaDuration = ep.duration_seconds || 0;
+        let resumePosition = Math.max(0, lastPos || 0);
+
+        // If last position is within the last 10 seconds, treat as completed and start from 0
+        if (mediaDuration > 0 && resumePosition >= mediaDuration - 10) {
+          resumePosition = 0;
         }
+        
+        audioRef.current.currentTime = resumePosition;
+        setPosition(resumePosition);
+        setGlobalPos(resumePosition);
 
         audioRef.current.src = ep.audio_url;
         audioRef.current.playbackRate = playbackRate;
@@ -141,19 +141,21 @@ export const MiniPlayer: React.FC = () => {
             onReady: () => {
               if (!mounted) return;
               
-              // Resume from last position with validation
               const lastPos = Math.max(0, meta.video?.lastPositionSeconds || 0);
-              const duration = ytPlayerRef.current?.getDuration() || 0;
-              const validLastPos = Math.min(lastPos, Math.max(0, duration - 10));
+              const mediaDuration = ytPlayerRef.current?.getDuration() || meta.video?.durationSeconds || 0;
+              let resumePosition = lastPos;
+
+              // If last position is within the last 10 seconds, treat as completed and start from 0
+              if (mediaDuration > 0 && resumePosition >= mediaDuration - 10) {
+                resumePosition = 0;
+              }
               
-              if (validLastPos > 30) { // Only resume if more than 30 seconds in
-                try { 
-                  ytPlayerRef.current.seekTo(validLastPos, true); 
-                  setPosition(validLastPos);
-                  setGlobalPos(validLastPos);
-                } catch (error) {
-                  console.error('Failed to seek to last position:', error);
-                }
+              try { 
+                ytPlayerRef.current.seekTo(resumePosition, true); 
+                setPosition(resumePosition);
+                setGlobalPos(resumePosition);
+              } catch (error) {
+                console.error('Failed to seek to last position:', error);
               }
               
               if (isPlaying) {
