@@ -115,7 +115,7 @@ export function Podcasts() {
           return a.episode_number - b.episode_number;
         }
         if (a.publish_date && b.publish_date) {
-          return new Date(a.publish_date).getTime() - new Date(a.publish_date).getTime();
+          return new Date(a.publish_date).getTime() - new Date(b.publish_date).getTime();
         }
         return 0;
       });
@@ -357,6 +357,11 @@ export function Podcasts() {
   const subscribedPodcasts = subscriptions.map(sub => sub.podcast).filter(Boolean) as Podcast[];
 
   const handlePlayEpisode = (episode: PodcastEpisode) => {
+    // Clear current player first to avoid conflicts
+    if (player.current) {
+      player.clearCurrent();
+    }
+
     player.play({
       type: 'podcast',
       id: episode.id,
