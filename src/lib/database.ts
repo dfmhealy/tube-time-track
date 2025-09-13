@@ -87,9 +87,15 @@ export const DatabaseService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    // Validate position value
+    const validPosition = Math.max(0, Math.floor(lastPositionSeconds));
+
     const { error } = await supabase
       .from('videos')
-      .update({ last_position_seconds: lastPositionSeconds } as any)
+      .update({ 
+        last_position_seconds: validPosition,
+        last_watched_at: new Date().toISOString()
+      } as any)
       .eq('id', videoId)
       .eq('user_id', user.id);
 
@@ -249,9 +255,16 @@ export const DatabaseService = {
   async updateWatchSession(sessionId: string, updates: Partial<WatchSession>): Promise<void> {
     const updateData: any = {};
     
-    if (updates.secondsWatched !== undefined) updateData.seconds_watched = updates.secondsWatched;
-    if (updates.avgPlaybackRate !== undefined) updateData.avg_playback_rate = updates.avgPlaybackRate;
+    if (updates.secondsWatched !== undefined) {
+      updateData.seconds_watched = Math.max(0, Math.floor(updates.secondsWatched));
+    }
+    if (updates.avgPlaybackRate !== undefined) {
+      updateData.avg_playback_rate = Math.max(0.25, Math.min(4, updates.avgPlaybackRate));
+    }
     if (updates.endedAt !== undefined) updateData.ended_at = updates.endedAt;
+
+    // Only update if we have valid data
+    if (Object.keys(updateData).length === 0) return;
 
     const { error } = await supabase
       .from('watch_sessions')
@@ -262,11 +275,14 @@ export const DatabaseService = {
   },
 
   async endWatchSession(sessionId: string, finalSecondsWatched: number): Promise<void> {
+    // Validate final seconds
+    const validSeconds = Math.max(0, Math.floor(finalSecondsWatched));
+    
     const { error } = await supabase
       .from('watch_sessions')
       .update({
         ended_at: new Date().toISOString(),
-        seconds_watched: finalSecondsWatched
+        seconds_watched: validSeconds
       })
       .eq('id', sessionId);
 
@@ -337,10 +353,19 @@ export const DatabaseService = {
     if (!user) throw new Error('User not authenticated');
 
     const updateData: any = {};
-    if (updates.totalSeconds !== undefined) updateData.total_seconds = updates.totalSeconds;
-    if (updates.dailyGoalSeconds !== undefined) updateData.weekly_goal_seconds = updates.dailyGoalSeconds;
+    if (updates.totalSeconds !== undefined) {
+      updateData.total_seconds = Math.max(0, Math.floor(updates.totalSeconds));
+    }
+    if (updates.dailyGoalSeconds !== undefined) {
+      updateData.weekly_goal_seconds = Math.max(60, Math.floor(updates.dailyGoalSeconds)); // Minimum 1 minute
+    }
     if (updates.lastWatchedAt !== undefined) updateData.last_watched_at = updates.lastWatchedAt;
-    if (updates.streakDays !== undefined) updateData.streak_days = updates.streakDays;
+    if (updates.streakDays !== undefined) {
+      updateData.streak_days = Math.max(0, Math.floor(updates.streakDays));
+    }
+
+    // Only update if we have valid data
+    if (Object.keys(updateData).length === 0) return;
 
     const { error } = await supabase
       .from('user_stats')

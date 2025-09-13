@@ -16,8 +16,7 @@ export class StreakTracker {
    * This should be called with the previous total, new total, and goal.
    */
   async achieveTodayIfCrossed(prevTotal: number, newTotal: number, goal: number): Promise<void> {
-    // Only update streak if we actually crossed the threshold
-    if (goal > 0 && prevTotal < goal && newTotal >= goal) {
+    if (prevTotal < goal && newTotal >= goal) {
       await this.updateStreak();
     }
   }
@@ -34,8 +33,6 @@ export class StreakTracker {
       if (!userStats) return 0;
 
       const dailyGoalSeconds = userStats.dailyGoalSeconds;
-      if (dailyGoalSeconds <= 0) return userStats.streakDays || 0;
-      
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
@@ -45,27 +42,21 @@ export class StreakTracker {
       const yesterdayProgress = await this.getDailyProgress(yesterday);
 
       let newStreakDays = userStats.streakDays || 0;
+      const lastWatchedAt = userStats.lastWatchedAt ? new Date(userStats.lastWatchedAt) : null;
 
       // Check if user achieved daily goal today
       const achievedGoalToday = todayProgress >= dailyGoalSeconds;
 
-      // Only update streak if goal was achieved today
+      // If goal achieved, update streak based on whether yesterday's goal was achieved
       if (achievedGoalToday) {
         const achievedGoalYesterday = yesterdayProgress >= dailyGoalSeconds;
-        
-        // Check if this is a continuation of the streak or a new streak
-        const lastWatchedAt = userStats.lastWatchedAt ? new Date(userStats.lastWatchedAt) : null;
-        const isConsecutiveDay = lastWatchedAt && 
-          (today.getTime() - lastWatchedAt.getTime()) <= (48 * 60 * 60 * 1000); // Within 48 hours
-        
-        if (newStreakDays === 0 || (achievedGoalYesterday && isConsecutiveDay)) {
+        if (newStreakDays === 0 || achievedGoalYesterday) {
           newStreakDays += 1;
         } else {
-          // Reset streak if yesterday's goal wasn't achieved or there's a gap
           newStreakDays = 1;
         }
 
-        // Update the streak in database
+        // Persist that today's goal was achieved
         await DatabaseService.updateUserStats({
           streakDays: newStreakDays,
           lastWatchedAt: today.toISOString()
@@ -99,7 +90,7 @@ export class StreakTracker {
         .select('seconds_watched')
         .eq('user_id', user.id)
         .gte('started_at', startOfDay.toISOString())
-        .lt('started_at', endOfDay.toISOString())
+        .lte('started_at', endOfDay.toISOString())
         .not('ended_at', 'is', null);
 
       if (videoError) {
@@ -112,7 +103,7 @@ export class StreakTracker {
         .select('seconds_listened')
         .eq('user_id', user.id)
         .gte('started_at', startOfDay.toISOString())
-        .lt('started_at', endOfDay.toISOString())
+        .lte('started_at', endOfDay.toISOString())
         .not('ended_at', 'is', null);
 
       if (podcastError) {

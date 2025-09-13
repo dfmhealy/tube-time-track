@@ -67,9 +67,15 @@ export const PodcastDatabaseService = {
   },
 
   async updateEpisodeProgress(episodeId: string, lastPositionSeconds: number): Promise<void> {
+    // Validate position value
+    const validPosition = Math.max(0, Math.floor(lastPositionSeconds));
+    
     const { error } = await supabase
       .from('podcast_episodes')
-      .update({ last_position_seconds: lastPositionSeconds } as any)
+      .update({ 
+        last_position_seconds: validPosition,
+        updated_at: new Date().toISOString()
+      } as any)
       .eq('id', episodeId);
     if (error) throw new Error(`Failed to update episode progress: ${error.message}`);
   },
@@ -272,31 +278,57 @@ export const PodcastDatabaseService = {
   },
 
   async updateListenSession(sessionId: string, updates: Partial<PodcastSession>): Promise<void> {
+    // Validate updates
+    const validUpdates: any = {};
+    
+    if (updates.seconds_listened !== undefined) {
+      validUpdates.seconds_listened = Math.max(0, Math.floor(updates.seconds_listened));
+    }
+    if (updates.avg_playback_rate !== undefined) {
+      validUpdates.avg_playback_rate = Math.max(0.25, Math.min(4, updates.avg_playback_rate));
+    }
+    if (updates.ended_at !== undefined) {
+      validUpdates.ended_at = updates.ended_at;
+    }
+    if (updates.started_at !== undefined) {
+      validUpdates.started_at = updates.started_at;
+    }
+    if (updates.source !== undefined) {
+      validUpdates.source = updates.source;
+    }
+    
+    // Only update if we have valid data
+    if (Object.keys(validUpdates).length === 0) return;
+    
     const { error } = await supabase
       .from('podcast_sessions')
-      .update(updates)
+      .update(validUpdates)
       .eq('id', sessionId);
     
     if (error) throw new Error(`Failed to update session: ${error.message}`);
   },
 
   async endListenSession(sessionId: string, finalSecondsListened: number): Promise<void> {
+    // Validate final seconds
+    const validSeconds = Math.max(0, Math.floor(finalSecondsListened));
+    
     const { data, error } = await supabase
       .from('podcast_sessions')
       .update({
-        seconds_listened: finalSecondsListened,
+        seconds_listened: validSeconds,
         ended_at: new Date().toISOString()
       } as any)
       .eq('id', sessionId)
       .select('*');
     
     if (error) throw new Error(`Failed to end session: ${error.message}`);
+    
     // Also persist last position on the episode if we can infer episode id
     if (data && data.length > 0) {
       const episodeId = data[0].episode_id as string | undefined;
       if (episodeId) {
         try {
-          await this.updateEpisodeProgress(episodeId, Math.floor(finalSecondsListened));
+          await this.updateEpisodeProgress(episodeId, validSeconds);
         } catch (e) {
           console.error('Failed to update episode progress on end:', e);
         }
@@ -326,18 +358,28 @@ export const PodcastDatabaseService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return 0;
 
-    // Use the most recent session (ended or in-progress) to resume from last saved position
+    // First try to get position from episode record
+    const { data: episodeData } = await supabase
+      .from('podcast_episodes')
+      .select('last_position_seconds')
+      .eq('id', episodeId)
+      .single();
+    
+    if (episodeData?.last_position_seconds) {
+      return Math.max(0, episodeData.last_position_seconds);
+    }
+    
+    // Fallback: Use the most recent session (ended or in-progress) to resume from last saved position
     const { data, error } = await supabase
       .from('podcast_sessions')
       .select('seconds_listened, started_at, ended_at')
       .eq('user_id', user.id)
       .eq('episode_id', episodeId)
-      .order('ended_at', { ascending: false })
       .order('started_at', { ascending: false })
       .limit(1);
     
     if (error || !data || data.length === 0) return 0;
-    return data[0].seconds_listened || 0;
+    return Math.max(0, data[0].seconds_listened || 0);
   },
 
   async markEpisodeAsCompleted(episodeId: string): Promise<void> {
