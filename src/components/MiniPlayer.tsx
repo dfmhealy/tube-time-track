@@ -115,10 +115,10 @@ export const MiniPlayer: React.FC = () => {
         const s = await PodcastDatabaseService.startListenSession(ep.id);
         setSession(s);
 
-        // Removed: No automatic play for podcasts here
-        // if (isPlaying) {
-        //   audioRef.current.play().catch(e => console.error("Autoplay failed for podcast:", e));
-        // }
+        // Immediately attempt to play if isPlaying is true
+        if (isPlaying) {
+          audioRef.current.play().catch(e => console.error("Autoplay failed for podcast:", e));
+        }
 
       } catch (error) {
         console.error('Failed to setup podcast audio:', error);
@@ -131,7 +131,7 @@ export const MiniPlayer: React.FC = () => {
       progressTimer.current = null;
       setSession(null);
     };
-  }, [isPodcast, meta?.podcast?.id, position, isPlaying]);
+  }, [isPodcast, meta?.podcast?.id, position, isPlaying]); // Added isPlaying to dependencies
 
   // Setup YouTube mini-player for videos
   useEffect(() => {
@@ -276,7 +276,7 @@ export const MiniPlayer: React.FC = () => {
       ytPlayerRef.current = null;
       videoSessionIdRef.current = null;
     };
-  }, [isVideo, meta?.video?.id, position, isPlaying]);
+  }, [isVideo, meta?.video?.id, position, isPlaying]); // Added isPlaying to dependencies
 
   // Control playback state for audio (podcasts)
   useEffect(() => {
