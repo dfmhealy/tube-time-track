@@ -6,13 +6,14 @@ export type QueueItemType = 'podcast' | 'video';
 
 export interface QueueItem {
   type: QueueItemType;
-  id: string; // episode id or video id
+  id: string; // episode id or video id (database ID)
   title: string;
   thumbnailUrl: string;
   channelTitle?: string; // For videos
   creator?: string; // For podcasts
   durationSeconds: number;
   lastPositionSeconds?: number; // For resuming
+  youtubeId?: string; // Added for videos
 }
 
 interface PlayerState {

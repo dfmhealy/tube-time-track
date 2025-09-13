@@ -44,6 +44,7 @@ export function VideoCard({ video, onDelete, className }: VideoCardProps) {
     player.play({
       type: 'video',
       id: video.id,
+      youtubeId: video.youtubeId, // Pass youtubeId
       title: video.title,
       thumbnailUrl: video.thumbnailUrl,
       channelTitle: video.channelTitle,
@@ -56,6 +57,7 @@ export function VideoCard({ video, onDelete, className }: VideoCardProps) {
     player.enqueueNext({
       type: 'video',
       id: video.id,
+      youtubeId: video.youtubeId, // Pass youtubeId
       title: video.title,
       thumbnailUrl: video.thumbnailUrl,
       channelTitle: video.channelTitle,
@@ -69,6 +71,7 @@ export function VideoCard({ video, onDelete, className }: VideoCardProps) {
     player.enqueueLast({
       type: 'video',
       id: video.id,
+      youtubeId: video.youtubeId, // Pass youtubeId
       title: video.title,
       thumbnailUrl: video.thumbnailUrl,
       channelTitle: video.channelTitle,

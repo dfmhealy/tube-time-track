@@ -56,7 +56,7 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
       }
 
       ytPlayerInstance.current = new (window as any).YT.Player(playerContainer, {
-        videoId: video.id,
+        videoId: video.youtubeId, // Use video.youtubeId
         playerVars: {
           autoplay: 1, // Autoplay when opened in PlayerView
           controls: 0, // Custom controls

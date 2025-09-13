@@ -41,6 +41,7 @@ export default function Subscriptions() {
     player.play({
       type: 'video',
       id: video.id,
+      youtubeId: video.youtubeId, // Pass youtubeId
       title: video.title,
       thumbnailUrl: video.thumbnailUrl,
       channelTitle: video.channelTitle,
@@ -53,6 +54,7 @@ export default function Subscriptions() {
     player.enqueueNext({
       type: 'video',
       id: video.id,
+      youtubeId: video.youtubeId, // Pass youtubeId
       title: video.title,
       thumbnailUrl: video.thumbnailUrl,
       channelTitle: video.channelTitle,
@@ -66,6 +68,7 @@ export default function Subscriptions() {
     player.enqueueLast({
       type: 'video',
       id: video.id,
+      youtubeId: video.youtubeId, // Pass youtubeId
       title: video.title,
       thumbnailUrl: video.thumbnailUrl,
       channelTitle: video.channelTitle,

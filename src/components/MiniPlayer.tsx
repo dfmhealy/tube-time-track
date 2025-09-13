@@ -65,7 +65,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
   });
 
   const { ytPlayerInstance, videoSessionIdRef } = useYouTubePlayer({
-    currentVideo: isVideo ? { id: current.id, youtubeId: current.id, durationSeconds: current.durationSeconds } : null,
+    currentVideo: isVideo ? { id: current.id, youtubeId: current.youtubeId!, durationSeconds: current.durationSeconds } : null, // Use current.youtubeId
     youtubeIframeRef,
     isPlaying,
     volume,
@@ -169,6 +169,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
                 channelTitle: v.channelTitle,
                 durationSeconds: v.durationSeconds,
                 lastPositionSeconds: v.lastPositionSeconds,
+                youtubeId: v.youtubeId, // Ensure youtubeId is updated in current
               }
             }));
           }
