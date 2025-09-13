@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { URLInput } from '@/components/URLInput';
 import { VideoCard } from '@/components/VideoCard';
-import { useLibraryStore, useAppStore } from '@/store/appStore';
+import { useAppStore } from '@/store/appStore'; // Keep useAppStore for searchQuery
+import { useLibraryStore } from '@/store/libraryStore'; // Updated import
 import { DatabaseService } from '@/lib/database';
 import { Search, Filter, SortAsc, SortDesc, Grid, List } from 'lucide-react';
 import { toast } from 'sonner';

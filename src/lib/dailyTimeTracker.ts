@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { DatabaseService } from './database';
 import { PodcastDatabaseService } from './podcastDatabase';
 import { streakTracker } from './streakTracker';
+import { useStatsStore } from '@/store/statsStore'; // Updated import
 
 export class DailyTimeTracker {
   private static instance: DailyTimeTracker;
@@ -102,6 +103,8 @@ export class DailyTimeTracker {
             totalSeconds: userStats.totalSeconds + inc,
             lastWatchedAt: new Date().toISOString()
           });
+          // Update Zustand store
+          useStatsStore.getState().updateTotalSeconds(inc);
         }
 
         // Check streak when crossing daily goal threshold

@@ -1,26 +1,54 @@
-import { useState } from 'react';
-import { useAppStore } from '@/store/appStore';
+import { useState, useEffect } from 'react';
+import { useStatsStore } from '@/store/statsStore'; // Updated import
+import { DatabaseService } from '@/lib/database';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 
 export default function Settings() {
-  const { dailyGoal, setDailyGoal } = useAppStore();
-  const [localDailyGoal, setLocalDailyGoal] = useState(String(dailyGoal / 60)); // Convert to minutes for input
+  const { userStats, setUserStats, updateDailyGoalSeconds } = useStatsStore();
+  const [localDailyGoal, setLocalDailyGoal] = useState('0'); // Convert to minutes for input
 
-  const handleSave = () => {
+  // Load initial daily goal from store/database
+  useEffect(() => {
+    if (userStats?.dailyGoalSeconds !== undefined) {
+      setLocalDailyGoal(String(Math.round(userStats.dailyGoalSeconds / 60)));
+    } else {
+      // If userStats not loaded yet, try to fetch or use a default
+      const fetchUserStats = async () => {
+        const stats = await DatabaseService.getUserStats();
+        if (stats) {
+          setUserStats(stats);
+          setLocalDailyGoal(String(Math.round(stats.dailyGoalSeconds / 60)));
+        } else {
+          setLocalDailyGoal(String(30)); // Default to 30 minutes if no stats
+        }
+      };
+      fetchUserStats();
+    }
+  }, [userStats?.dailyGoalSeconds, setUserStats]);
+
+  const handleSave = async () => {
     const minutes = parseFloat(localDailyGoal);
     if (isNaN(minutes) || minutes <= 0) {
       toast.error('Please enter a valid number of minutes');
       return;
     }
-    setDailyGoal(Math.round(minutes * 60)); // Convert minutes to seconds
-    toast.success('Daily goal updated successfully');
+    const newGoalSeconds = Math.round(minutes * 60); // Convert minutes to seconds
+
+    try {
+      await DatabaseService.updateUserStats({ dailyGoalSeconds: newGoalSeconds });
+      updateDailyGoalSeconds(newGoalSeconds); // Update Zustand store
+      toast.success('Daily goal updated successfully');
+    } catch (error) {
+      console.error('Failed to update daily goal:', error);
+      toast.error('Failed to save daily goal. Please try again.');
+    }
   };
 
   // Convert seconds to minutes for display
-  const dailyGoalInMinutes = Math.round(dailyGoal / 60);
+  const dailyGoalInMinutes = Math.round((userStats?.dailyGoalSeconds || 0) / 60);
 
   return (
     <div className="container mx-auto p-4 max-w-2xl">

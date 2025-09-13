@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Card } from '@/components/ui/card';
 import { Play, Pause, SkipForward, X, Volume2, VolumeX, HeadphonesIcon, Youtube, Maximize2, ListMusic } from 'lucide-react';
-import { usePlayerStore } from '@/store/playerStore';
+import { usePlayerStore } from '@/store/appStore'; // Updated import
 import { PodcastDatabaseService } from '@/lib/podcastDatabase';
 import { DatabaseService } from '@/lib/database';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
@@ -144,16 +144,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
             lastPos = ep.last_position_seconds || 0;
             mediaDuration = ep.duration_seconds || 0;
             // Update current item in store with full metadata
-            usePlayerStore.setState(state => ({
-              current: {
-                ...state.current!,
-                title: ep.title,
-                thumbnailUrl: ep.thumbnail_url || '',
-                creator: ep.podcast?.creator || ep.creator,
-                durationSeconds: ep.duration_seconds,
-                lastPositionSeconds: ep.last_position_seconds,
-              }
-            }));
+            usePlayerStore.getState().play({
+              ...current,
+              title: ep.title,
+              thumbnailUrl: ep.thumbnail_url || '',
+              creator: ep.podcast?.creator || ep.creator,
+              durationSeconds: ep.duration_seconds,
+              lastPositionSeconds: ep.last_position_seconds,
+            }, ep.last_position_seconds || 0);
           }
         } else if (isVideo) {
           const v = await DatabaseService.getVideo(current.id);
@@ -161,17 +159,15 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
             lastPos = v.lastPositionSeconds || 0;
             mediaDuration = v.durationSeconds || 0;
             // Update current item in store with full metadata
-            usePlayerStore.setState(state => ({
-              current: {
-                ...state.current!,
-                title: v.title,
-                thumbnailUrl: v.thumbnailUrl,
-                channelTitle: v.channelTitle,
-                durationSeconds: v.durationSeconds,
-                lastPositionSeconds: v.lastPositionSeconds,
-                youtubeId: v.youtubeId, // Ensure youtubeId is updated in current
-              }
-            }));
+            usePlayerStore.getState().play({
+              ...current,
+              title: v.title,
+              thumbnailUrl: v.thumbnailUrl,
+              channelTitle: v.channelTitle,
+              durationSeconds: v.durationSeconds,
+              lastPositionSeconds: v.lastPositionSeconds,
+              youtubeId: v.youtubeId, // Ensure youtubeId is updated in current
+            }, v.lastPositionSeconds || 0);
           }
         }
 

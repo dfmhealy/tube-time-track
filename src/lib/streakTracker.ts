@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { DatabaseService } from './database';
+import { useStatsStore } from '@/store/statsStore'; // Updated import
 
 export class StreakTracker {
   private static instance: StreakTracker;
@@ -81,6 +82,8 @@ export class StreakTracker {
             streakDays: newStreakDays,
             lastWatchedAt: today.toISOString()
           });
+          // Update Zustand store
+          useStatsStore.getState().updateStreakDays(newStreakDays);
         } else {
           // Already updated today, just return current streak
           return newStreakDays;

@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { URLInput } from '@/components/URLInput';
 import { VideoCard } from '@/components/VideoCard';
-import { useAppStore, useStatsStore, useLibraryStore } from '@/store/appStore';
+import { useAppStore } from '@/store/appStore'; // Keep useAppStore for general UI state
+import { useStatsStore } from '@/store/statsStore'; // Updated import
+import { useLibraryStore } from '@/store/libraryStore'; // Updated import
 import { DatabaseService } from '@/lib/database';
 import type { Video } from '@/lib/database';
 import { formatDuration } from '@/lib/utils';
@@ -14,8 +16,7 @@ import { toast } from 'sonner';
 
 export function Home() {
   const { user } = useAuth();
-  const { dailyGoal } = useAppStore(); // Removed setCurrentVideo, setCurrentView
-  const { userStats } = useStatsStore();
+  const { userStats } = useStatsStore(); // Get userStats from statsStore
   const { videos, setVideos, removeVideo } = useLibraryStore();
   const [recentVideos, setRecentVideos] = useState<Video[]>([]);
   const [dailyProgress, setDailyProgress] = useState({ seconds: 0, percentage: 0 });
@@ -40,7 +41,9 @@ export function Home() {
         const todayStr = new Date().toISOString().split('T')[0];
         const todayData = weeklyData.find(d => new Date(d.date).toISOString().split('T')[0] === todayStr);
         const todaySeconds = todayData?.seconds || 0;
-        const percentage = dailyGoal > 0 ? Math.min((todaySeconds / dailyGoal) * 100, 100) : 0;
+        
+        const dailyGoalSeconds = userStats?.dailyGoalSeconds || (30 * 60); // Use dailyGoalSeconds from userStats
+        const percentage = dailyGoalSeconds > 0 ? Math.min((todaySeconds / dailyGoalSeconds) * 100, 100) : 0;
         setDailyProgress({ seconds: todaySeconds, percentage });
 
       } catch (error) {
@@ -51,7 +54,7 @@ export function Home() {
     };
 
     fetchData();
-  }, [dailyGoal, videos.length, setVideos]);
+  }, [userStats?.dailyGoalSeconds, videos.length, setVideos]); // Depend on userStats.dailyGoalSeconds
 
   // VideoCard now handles onPlay internally, so we only need onDelete here
   const handleDeleteVideo = async (videoId: string) => {
@@ -95,6 +98,8 @@ export function Home() {
     );
   }
 
+  const currentDailyGoal = userStats?.dailyGoalSeconds || (30 * 60); // Fallback to 30 minutes
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -114,7 +119,7 @@ export function Home() {
             <Target className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatDuration(dailyProgress.seconds)} / {formatDuration(dailyGoal)}</div>
+            <div className="text-2xl font-bold">{formatDuration(dailyProgress.seconds)} / {formatDuration(currentDailyGoal)}</div>
             <Progress value={dailyProgress.percentage} className="mt-2 h-2" />
           </CardContent>
         </Card>

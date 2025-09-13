@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { useStatsStore, useAppStore } from '@/store/appStore';
+import { useStatsStore } from '@/store/statsStore'; // Updated import
 import { DatabaseService } from '@/lib/database';
-import { formatDuration } from '@/lib/youtube';
+import { formatDuration } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Calendar, Clock, Target, TrendingUp } from 'lucide-react';
 
 export function Stats() {
-  const appStore = useAppStore();
   const { userStats, weeklyData, setUserStats, setWeeklyData, setStatsLoading, isStatsLoading } = useStatsStore();
   const [error, setError] = useState<string | null>(null);
 
@@ -74,7 +73,7 @@ export function Stats() {
     );
   }
 
-  const dailyGoalSeconds = appStore.dailyGoal; // Using dailyGoal from appStore
+  const dailyGoalSeconds = userStats.dailyGoalSeconds; // Using dailyGoal from userStats
   
   // Calculate today's watch time
   const today = new Date().toISOString().split('T')[0];
