@@ -37,3 +37,17 @@ export function formatTimeHMS(seconds: number): string {
   return `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
 
 }
+
+// CORS proxies for audio playback
+const AUDIO_PROXIES = [
+  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://thingproxy.freeboard.io/fetch/${url}`,
+];
+
+export function getProxiedAudioUrl(url: string, proxyIndex: number): string {
+  if (proxyIndex < 0 || proxyIndex >= AUDIO_PROXIES.length) {
+    return url; // Fallback to original URL if index is out of bounds
+  }
+  return AUDIO_PROXIES[proxyIndex](url);
+}

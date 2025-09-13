@@ -7,10 +7,10 @@ import { usePlayerStore } from '@/store/playerStore';
 import { PodcastDatabaseService, type PodcastEpisode, type PodcastSession } from '@/lib/podcastDatabase';
 import { DatabaseService, type Video } from '@/lib/database';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
-import { formatDuration } from '@/lib/utils';
+import { formatDuration, getProxiedAudioUrl } from '@/lib/utils'; // Import getProxiedAudioUrl
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { useToast } from '@/hooks/use-toast'; // Added import for useToast
+import { useToast } from '@/hooks/use-toast';
 
 interface MiniPlayerProps {
   youtubeIframeRef: React.RefObject<HTMLDivElement>;
@@ -173,12 +173,41 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
     const ep = current;
     const audio = audioRef.current;
 
-    const setupAudio = async () => {
-      audio.src = ep.audio_url;
-      audio.currentTime = localPosition;
+    const tryPlayAudioWithProxies = async (url: string, initialPosition: number) => {
+      audio.currentTime = initialPosition;
       audio.playbackRate = playbackRate;
       audio.volume = muted ? 0 : volume;
 
+      const AUDIO_PROXY_COUNT = 3; // Number of proxies defined in utils.ts
+
+      // Try direct URL first
+      audio.src = url;
+      audio.load();
+      try {
+        await audio.play();
+        return true; // Successfully played
+      } catch (e: any) {
+        console.warn("Direct podcast playback failed:", e);
+        if (e.name === 'NotSupportedError' || e.name === 'DOMException') {
+          // Try with proxies
+          for (let i = 0; i < AUDIO_PROXY_COUNT; i++) {
+            const proxiedUrl = getProxiedAudioUrl(url, i);
+            audio.src = proxiedUrl;
+            audio.load();
+            try {
+              await audio.play();
+              console.log(`Podcast playback successful via proxy ${i + 1}`);
+              return true; // Successfully played via proxy
+            } catch (proxyError: any) {
+              console.warn(`Podcast playback failed via proxy ${i + 1}:`, proxyError);
+            }
+          }
+        }
+        throw e; // Re-throw if all attempts fail or it's not a NotSupportedError
+      }
+    };
+
+    const setupAudio = async () => {
       try {
         const s = await PodcastDatabaseService.startListenSession(ep.id);
         setPodcastSession(s);
@@ -194,15 +223,17 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
       }
 
       if (isPlaying) {
-        audio.play().catch(e => {
+        try {
+          await tryPlayAudioWithProxies(ep.audio_url, localPosition);
+        } catch (e: any) {
           console.error("Podcast autoplay failed:", e);
           toast({
             title: "Autoplay Blocked",
-            description: "Autoplay blocked. Tap play to listen.",
+            description: "Autoplay blocked or media not supported. Tap play to listen.",
             variant: "info"
           });
           pause(); // Set global state to paused if autoplay fails
-        });
+        }
       }
     };
 
