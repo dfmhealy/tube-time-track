@@ -22,6 +22,7 @@ export const useStatsStore = create<StatsState>((set, get) => ({
   setUserStats: (stats) => set({ userStats: stats }),
   setWeeklyData: (data) => set({ weeklyData: data }),
   setStatsLoading: (loading) => set({ isStatsLoading: loading }),
+  
   updateTotalSeconds: (additionalSeconds) => {
     const currentStats = get().userStats;
     if (currentStats) {
@@ -29,13 +30,14 @@ export const useStatsStore = create<StatsState>((set, get) => ({
       set({
         userStats: {
           ...currentStats,
-          totalSeconds: currentStats.totalSeconds + validSeconds,
+          totalSeconds: (currentStats.totalSeconds || 0) + validSeconds,
           lastWatchedAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString() // Update updatedAt
+          updatedAt: new Date().toISOString()
         }
       });
     }
   },
+  
   updateDailyGoalSeconds: (newGoal) => {
     const currentStats = get().userStats;
     if (currentStats) {
@@ -43,11 +45,12 @@ export const useStatsStore = create<StatsState>((set, get) => ({
         userStats: {
           ...currentStats,
           dailyGoalSeconds: newGoal,
-          updatedAt: new Date().toISOString() // Update updatedAt
+          updatedAt: new Date().toISOString()
         }
       });
     }
   },
+  
   updateStreakDays: (newStreak) => {
     const currentStats = get().userStats;
     if (currentStats) {
@@ -55,7 +58,7 @@ export const useStatsStore = create<StatsState>((set, get) => ({
         userStats: {
           ...currentStats,
           streakDays: newStreak,
-          updatedAt: new Date().toISOString() // Update updatedAt
+          updatedAt: new Date().toISOString()
         }
       });
     }
