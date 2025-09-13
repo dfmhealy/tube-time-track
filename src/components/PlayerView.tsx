@@ -201,12 +201,16 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
 
   const handleSeek = useCallback((vals: number[]) => {
     const newPos = vals[0];
+    if (!Number.isFinite(newPos)) {
+      console.warn('Attempted to seek to a non-finite value:', newPos);
+      return;
+    }
     setLocalPosition(newPos);
     setGlobalPosition(newPos);
     if (ytPlayerInstance.current) {
       ytPlayerInstance.current.seekTo(newPos, true);
     }
-  }, []);
+  }, [setLocalPosition, setGlobalPosition, ytPlayerInstance.current]);
 
   const handleVolumeChange = useCallback((vals: number[]) => {
     const newVol = vals[0];

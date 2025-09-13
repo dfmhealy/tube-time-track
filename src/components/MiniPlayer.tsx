@@ -314,6 +314,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
 
   const onSeek = useCallback((vals: number[]) => {
     const newPos = vals[0];
+    // Validate newPos before using it
+    if (!Number.isFinite(newPos)) {
+      console.warn('Attempted to seek to a non-finite value:', newPos);
+      return;
+    }
+
     setLocalPosition(newPos);
     setGlobalPos(newPos);
     if (isPodcast && audioRef.current) {
@@ -321,7 +327,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
     } else if (isVideo && ytPlayerInstance.current) {
       ytPlayerInstance.current.seekTo(newPos, true);
     }
-  }, [isPodcast, isVideo, setLocalPosition, setGlobalPos]);
+  }, [isPodcast, isVideo, setLocalPosition, setGlobalPos, ytPlayerInstance.current, audioRef.current]);
 
   const handleToggleMute = useCallback(() => {
     setGlobalMuted(!muted);
