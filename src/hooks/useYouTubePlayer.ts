@@ -94,7 +94,9 @@ export const useYouTubePlayer = ({
                 
                 // Only attempt autoplay if `isPlaying` is true from the store
                 if (usePlayerStore.getState().isPlaying) { // Check current store state
-                  ytPlayerInstance.current.playVideo().catch((e: any) => {
+                  try {
+                    ytPlayerInstance.current.playVideo();
+                  } catch (e: any) {
                     console.error("YT Autoplay failed:", e);
                     toast({
                       title: "Autoplay Blocked",
@@ -102,7 +104,7 @@ export const useYouTubePlayer = ({
                       variant: "info"
                     });
                     pause(); // Update store state to paused
-                  });
+                  }
                 }
                 setLocalDuration(ytPlayerInstance.current.getDuration());
               }

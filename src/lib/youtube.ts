@@ -46,7 +46,7 @@ export async function getVideoInfoFromOEmbed(videoId: string): Promise<YouTubeVi
       id: videoId,
       title: data.title || 'Unknown Title',
       channelTitle: data.author_name || 'Unknown Channel',
-      thumbnailUrl: data.thumbnail_url || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
+      thumbnailUrl: data.thumbnail_url || getThumbnailUrl(videoId, 'hq') // Use hqdefault as fallback
     };
   } catch (error) {
     console.error('Error fetching video info:', error);
@@ -55,8 +55,16 @@ export async function getVideoInfoFromOEmbed(videoId: string): Promise<YouTubeVi
 }
 
 // Generate thumbnail URL for a video ID
-export function getThumbnailUrl(videoId: string, quality: 'default' | 'medium' | 'high' | 'maxres' = 'maxres'): string {
-  return `https://img.youtube.com/vi/${videoId}/${quality}default.jpg`;
+export function getThumbnailUrl(videoId: string, quality: 'default' | 'medium' | 'high' | 'maxres' | 'hq' = 'hq'): string {
+  // 'hq' maps to hqdefault.jpg, which is more reliable than maxresdefault.jpg
+  const qualityMap = {
+    default: 'default',
+    medium: 'mqdefault',
+    high: 'hqdefault',
+    maxres: 'maxresdefault',
+    hq: 'hqdefault' // Added 'hq' for clarity
+  };
+  return `https://img.youtube.com/vi/${videoId}/${qualityMap[quality]}.jpg`;
 }
 
 // Format duration in seconds to human readable format
@@ -146,6 +154,15 @@ declare global {
     YT: {
       Player: new (elementId: string, config: any) => YouTubePlayer;
       ready: (callback: () => void) => void;
+      PlayerState: {
+        ENDED: 0;
+        PLAYING: 1;
+        PAUSED: 2;
+        BUFFERING: 3;
+        CUED: 5;
+        UNSTARTED: -1;
+      };
+      get: (id: string) => YouTubePlayer | undefined; // Added for getting existing player
     };
     onYouTubeIframeAPIReady: () => void;
   }

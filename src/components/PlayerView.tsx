@@ -76,11 +76,13 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
               
               // Only attempt autoplay if `isPlaying` is true from the store
               if (usePlayerStore.getState().isPlaying) { // Check current store state
-                ytPlayerInstance.current.playVideo().catch((e: any) => {
+                try {
+                  ytPlayerInstance.current.playVideo();
+                } catch (e: any) {
                   console.error("YT Autoplay failed in PlayerView:", e);
                   toast.error("Autoplay blocked. Tap play to watch.");
                   pause(); // Update store state to paused
-                });
+                }
               }
               setLocalDuration(ytPlayerInstance.current.getDuration());
             }
@@ -117,11 +119,13 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
         ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
         ytPlayerInstance.current.setPlaybackRate(playbackRate);
         if (usePlayerStore.getState().isPlaying) { // Check current store state
-          ytPlayerInstance.current.playVideo().catch((e: any) => {
+          try {
+            ytPlayerInstance.current.playVideo();
+          } catch (e: any) {
             console.error("YT Autoplay failed in PlayerView (existing iframe):", e);
             toast.error("Autoplay blocked. Tap play to watch.");
             pause();
-          });
+          }
         } else {
           ytPlayerInstance.current.pauseVideo();
         }
