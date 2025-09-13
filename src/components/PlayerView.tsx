@@ -69,19 +69,21 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
         events: {
           onReady: (event: any) => {
             ytPlayerInstance.current = event.target;
-            ytPlayerInstance.current.seekTo(localPosition, true);
-            ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
-            ytPlayerInstance.current.setPlaybackRate(playbackRate);
-            
-            // Only attempt autoplay if `isPlaying` is true from the store
-            if (usePlayerStore.getState().isPlaying) { // Check current store state
-              ytPlayerInstance.current.playVideo().catch((e: any) => {
-                console.error("YT Autoplay failed in PlayerView:", e);
-                toast.error("Autoplay blocked. Tap play to watch.");
-                pause(); // Update store state to paused
-              });
+            if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
+              ytPlayerInstance.current.seekTo(localPosition, true);
+              ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
+              ytPlayerInstance.current.setPlaybackRate(playbackRate);
+              
+              // Only attempt autoplay if `isPlaying` is true from the store
+              if (usePlayerStore.getState().isPlaying) { // Check current store state
+                ytPlayerInstance.current.playVideo().catch((e: any) => {
+                  console.error("YT Autoplay failed in PlayerView:", e);
+                  toast.error("Autoplay blocked. Tap play to watch.");
+                  pause(); // Update store state to paused
+                });
+              }
+              setLocalDuration(ytPlayerInstance.current.getDuration());
             }
-            setLocalDuration(ytPlayerInstance.current.getDuration());
           },
           onStateChange: (event: any) => {
             const YT = (window as any).YT;
@@ -110,7 +112,7 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
       existingIframe.style.height = '100%';
       ytPlayerInstance.current = (window as any).YT.get(existingIframe.id);
       
-      if (ytPlayerInstance.current) {
+      if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
         ytPlayerInstance.current.seekTo(localPosition, true);
         ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
         ytPlayerInstance.current.setPlaybackRate(playbackRate);
@@ -148,18 +150,26 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
 
   // Effect 2: Sync global playback state to YouTube player
   useEffect(() => {
-    if (!video || !ytPlayerInstance.current) return;
+    if (!video || !ytPlayerInstance.current || typeof ytPlayerInstance.current.getPlayerState !== 'function') return;
     const YT = (window as any).YT;
     if (isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PLAYING) {
-      try { ytPlayerInstance.current.playVideo(); } catch (e) { console.error("YT play failed:", e); }
+      try { 
+        if (typeof ytPlayerInstance.current.playVideo === 'function') {
+          ytPlayerInstance.current.playVideo(); 
+        }
+      } catch (e) { console.error("YT play failed:", e); }
     } else if (!isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PAUSED) {
-      try { ytPlayerInstance.current.pauseVideo(); } catch (e) { console.error("YT pause failed:", e); }
+      try { 
+        if (typeof ytPlayerInstance.current.pauseVideo === 'function') {
+          ytPlayerInstance.current.pauseVideo(); 
+        }
+      } catch (e) { console.error("YT pause failed:", e); }
     }
   }, [isPlaying, video, ytPlayerInstance.current]); // Only re-run when isPlaying or video changes
 
   // Effect 3: Sync local position/duration with global state and update DB
   useEffect(() => {
-    if (!video || !ytPlayerInstance.current) return;
+    if (!video || !ytPlayerInstance.current || typeof ytPlayerInstance.current.getCurrentTime !== 'function' || typeof ytPlayerInstance.current.getDuration !== 'function' || typeof ytPlayerInstance.current.getPlayerState !== 'function') return;
 
     if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
     progressIntervalRef.current = window.setInterval(async () => {
@@ -189,13 +199,13 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
 
   // Effect 4: Sync global volume/mute to YouTube player
   useEffect(() => {
-    if (!ytPlayerInstance.current) return;
+    if (!ytPlayerInstance.current || typeof ytPlayerInstance.current.setVolume !== 'function') return;
     ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
   }, [volume, muted, ytPlayerInstance.current]);
 
   // Effect 5: Sync global playback rate to YouTube player
   useEffect(() => {
-    if (!ytPlayerInstance.current) return;
+    if (!ytPlayerInstance.current || typeof ytPlayerInstance.current.setPlaybackRate !== 'function') return;
     ytPlayerInstance.current.setPlaybackRate(playbackRate);
   }, [playbackRate, ytPlayerInstance.current]);
 
@@ -207,7 +217,7 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
     }
     setLocalPosition(newPos);
     setGlobalPosition(newPos);
-    if (ytPlayerInstance.current) {
+    if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
       ytPlayerInstance.current.seekTo(newPos, true);
     }
   }, [setLocalPosition, setGlobalPosition, ytPlayerInstance.current]);
@@ -215,7 +225,7 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
   const handleVolumeChange = useCallback((vals: number[]) => {
     const newVol = vals[0];
     setGlobalVolume(newVol);
-    if (ytPlayerInstance.current) {
+    if (ytPlayerInstance.current && typeof ytPlayerInstance.current.setVolume === 'function') {
       ytPlayerInstance.current.setVolume(newVol * 100);
     }
   }, []);
@@ -224,9 +234,9 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
     setGlobalMuted(!muted);
     if (ytPlayerInstance.current) {
       if (muted) {
-        ytPlayerInstance.current.unMute();
+        if (typeof ytPlayerInstance.current.unMute === 'function') ytPlayerInstance.current.unMute();
       } else {
-        ytPlayerInstance.current.mute();
+        if (typeof ytPlayerInstance.current.mute === 'function') ytPlayerInstance.current.mute();
       }
     }
   }, [muted]);
@@ -248,8 +258,8 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
 
   const handleClose = useCallback(() => {
     if (ytPlayerInstance.current) {
-      ytPlayerInstance.current.stopVideo();
-      ytPlayerInstance.current.destroy(); // Destroy player when closing completely
+      if (typeof ytPlayerInstance.current.stopVideo === 'function') ytPlayerInstance.current.stopVideo();
+      if (typeof ytPlayerInstance.current.destroy === 'function') ytPlayerInstance.current.destroy(); // Destroy player when closing completely
     }
     clearCurrent();
   }, [clearCurrent]);
@@ -280,7 +290,7 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
             {video.title}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => ytPlayerInstance.current?.requestFullscreen()}>
+            <Button variant="ghost" size="icon" onClick={() => ytPlayerInstance.current && typeof ytPlayerInstance.current.requestFullscreen === 'function' && ytPlayerInstance.current.requestFullscreen()}>
               <Maximize2 className="h-5 w-5" />
             </Button>
             {/* Add more settings like captions here */}

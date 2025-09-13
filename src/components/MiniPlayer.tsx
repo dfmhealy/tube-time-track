@@ -216,7 +216,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
         currentPos = Math.floor(audioRef.current.currentTime);
         currentDur = Math.floor(audioRef.current.duration);
         isMediaPlaying = !audioRef.current.paused;
-      } else if (isVideo && ytPlayerInstance.current) {
+      } else if (isVideo && ytPlayerInstance.current && typeof ytPlayerInstance.current.getCurrentTime === 'function' && typeof ytPlayerInstance.current.getDuration === 'function' && typeof ytPlayerInstance.current.getPlayerState === 'function') {
         const YT = (window as any).YT;
         currentPos = Math.floor(ytPlayerInstance.current.getCurrentTime());
         currentDur = Math.floor(ytPlayerInstance.current.getDuration());
@@ -272,7 +272,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
       let currentPos = 0;
       if (isPodcast && audioRef.current) {
         currentPos = Math.floor(audioRef.current.currentTime);
-      } else if (isVideo && ytPlayerInstance.current) {
+      } else if (isVideo && ytPlayerInstance.current && typeof ytPlayerInstance.current.getCurrentTime === 'function') {
         currentPos = Math.floor(ytPlayerInstance.current.getCurrentTime());
       }
 
@@ -325,7 +325,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
     setGlobalPos(newPos);
     if (isPodcast && audioRef.current) {
       audioRef.current.currentTime = newPos;
-    } else if (isVideo && ytPlayerInstance.current) {
+    } else if (isVideo && ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
       ytPlayerInstance.current.seekTo(newPos, true);
     }
   }, [isPodcast, isVideo, setLocalPosition, setGlobalPos, ytPlayerInstance.current, audioRef.current]);

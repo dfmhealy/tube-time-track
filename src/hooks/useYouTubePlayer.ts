@@ -87,23 +87,25 @@ export const useYouTubePlayer = ({
           events: {
             onReady: (event: any) => {
               ytPlayerInstance.current = event.target;
-              ytPlayerInstance.current.seekTo(localPosition, true);
-              ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
-              ytPlayerInstance.current.setPlaybackRate(playbackRate);
-              
-              // Only attempt autoplay if `isPlaying` is true from the store
-              if (usePlayerStore.getState().isPlaying) { // Check current store state
-                ytPlayerInstance.current.playVideo().catch((e: any) => {
-                  console.error("YT Autoplay failed:", e);
-                  toast({
-                    title: "Autoplay Blocked",
-                    description: "Autoplay blocked. Tap play to watch.",
-                    variant: "info"
+              if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') {
+                ytPlayerInstance.current.seekTo(localPosition, true);
+                ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
+                ytPlayerInstance.current.setPlaybackRate(playbackRate);
+                
+                // Only attempt autoplay if `isPlaying` is true from the store
+                if (usePlayerStore.getState().isPlaying) { // Check current store state
+                  ytPlayerInstance.current.playVideo().catch((e: any) => {
+                    console.error("YT Autoplay failed:", e);
+                    toast({
+                      title: "Autoplay Blocked",
+                      description: "Autoplay blocked. Tap play to watch.",
+                      variant: "info"
+                    });
+                    pause(); // Update store state to paused
                   });
-                  pause(); // Update store state to paused
-                });
+                }
+                setLocalDuration(ytPlayerInstance.current.getDuration());
               }
-              setLocalDuration(ytPlayerInstance.current.getDuration());
             },
             onStateChange: (event: any) => {
               const YT = (window as any).YT;
@@ -155,25 +157,33 @@ export const useYouTubePlayer = ({
 
   // Effect 2: Sync global isPlaying state to YouTube player
   useEffect(() => {
-    if (!currentVideo || !ytPlayerInstance.current) return;
+    if (!currentVideo || !ytPlayerInstance.current || typeof ytPlayerInstance.current.getPlayerState !== 'function') return;
     const YT = (window as any).YT;
     if (isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PLAYING) {
-      try { ytPlayerInstance.current.playVideo(); } catch (e) { console.error("YT play failed:", e); }
+      try { 
+        if (typeof ytPlayerInstance.current.playVideo === 'function') {
+          ytPlayerInstance.current.playVideo(); 
+        }
+      } catch (e) { console.error("YT play failed:", e); }
     } else if (!isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PAUSED) {
-      try { ytPlayerInstance.current.pauseVideo(); } catch (e) { console.error("YT pause failed:", e); }
+      try { 
+        if (typeof ytPlayerInstance.current.pauseVideo === 'function') {
+          ytPlayerInstance.current.pauseVideo(); 
+        }
+      } catch (e) { console.error("YT pause failed:", e); }
     }
   }, [isPlaying, currentVideo]); // Only re-run when isPlaying or currentVideo changes
 
   // Effect 3: Sync volume/mute to YouTube player
   useEffect(() => {
-    if (ytPlayerInstance.current) {
+    if (ytPlayerInstance.current && typeof ytPlayerInstance.current.setVolume === 'function') {
       ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
     }
   }, [volume, muted]);
 
   // Effect 4: Sync playback rate to YouTube player
   useEffect(() => {
-    if (ytPlayerInstance.current) {
+    if (ytPlayerInstance.current && typeof ytPlayerInstance.current.setPlaybackRate === 'function') {
       ytPlayerInstance.current.setPlaybackRate(playbackRate);
     }
   }, [playbackRate]);
