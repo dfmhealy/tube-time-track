@@ -41,7 +41,7 @@ export const MiniPlayer: React.FC = () => {
   const isPodcast = type === 'podcast';
   const isVideo = type === 'video';
 
-  // Load metadata for the current item
+  // Load metadata for the current item and fetch latest position
   useEffect(() => {
     let canceled = false;
     (async () => {
@@ -49,13 +49,41 @@ export const MiniPlayer: React.FC = () => {
       try {
         if (current.type === 'podcast') {
           const ep = await PodcastDatabaseService.getEpisode(current.id);
-          if (!canceled) setMeta({ podcast: ep });
-        } else {
+          if (!canceled) {
+            setMeta({ podcast: ep });
+            if (ep) {
+              const lastPos = await PodcastDatabaseService.getLastPositionForEpisode(ep.id);
+              const mediaDuration = ep.duration_seconds || 0;
+              let resumePosition = Math.max(0, lastPos || 0);
+
+              // If last position is within the last 10 seconds, treat as completed and start from 0
+              if (mediaDuration > 0 && resumePosition >= mediaDuration - 10) {
+                resumePosition = 0;
+              }
+              setPosition(resumePosition);
+              setGlobalPos(resumePosition);
+            }
+          }
+        } else { // current.type === 'video'
           const v = await DatabaseService.getVideo(current.id);
-          if (!canceled) setMeta({ video: v });
+          if (!canceled) {
+            setMeta({ video: v });
+            if (v) {
+              const lastPos = v.lastPositionSeconds || 0;
+              const mediaDuration = v.durationSeconds || 0;
+              let resumePosition = Math.max(0, lastPos || 0);
+
+              // If last position is within the last 10 seconds, treat as completed and start from 0
+              if (mediaDuration > 0 && resumePosition >= mediaDuration - 10) {
+                resumePosition = 0;
+              }
+              setPosition(resumePosition);
+              setGlobalPos(resumePosition);
+            }
+          }
         }
       } catch (e) {
-        console.error('Failed to load media meta', e);
+        console.error('Failed to load media meta or last position', e);
       }
     })();
     return () => { canceled = true; };
@@ -79,19 +107,8 @@ export const MiniPlayer: React.FC = () => {
       const ep = meta.podcast;
 
       try {
-        const lastPos = await PodcastDatabaseService.getLastPositionForEpisode(ep.id);
-        const mediaDuration = ep.duration_seconds || 0;
-        let resumePosition = Math.max(0, lastPos || 0);
-
-        // If last position is within the last 10 seconds, treat as completed and start from 0
-        if (mediaDuration > 0 && resumePosition >= mediaDuration - 10) {
-          resumePosition = 0;
-        }
-        
-        audioRef.current.currentTime = resumePosition;
-        setPosition(resumePosition);
-        setGlobalPos(resumePosition);
-
+        // Use the position already set by the metadata effect
+        audioRef.current.currentTime = position;
         audioRef.current.src = ep.audio_url;
         audioRef.current.playbackRate = playbackRate;
         audioRef.current.volume = muted ? 0 : volume;
@@ -109,7 +126,7 @@ export const MiniPlayer: React.FC = () => {
       progressTimer.current = null;
       setSession(null);
     };
-  }, [isPodcast, meta?.podcast?.id]);
+  }, [isPodcast, meta?.podcast?.id, position]); // Depend on position to ensure it's set before audio.currentTime
 
   // Setup YouTube mini-player for videos
   useEffect(() => {
@@ -141,19 +158,9 @@ export const MiniPlayer: React.FC = () => {
             onReady: () => {
               if (!mounted) return;
               
-              const lastPos = Math.max(0, meta.video?.lastPositionSeconds || 0);
-              const mediaDuration = ytPlayerRef.current?.getDuration() || meta.video?.durationSeconds || 0;
-              let resumePosition = lastPos;
-
-              // If last position is within the last 10 seconds, treat as completed and start from 0
-              if (mediaDuration > 0 && resumePosition >= mediaDuration - 10) {
-                resumePosition = 0;
-              }
-              
+              // Use the position already set by the metadata effect
               try { 
-                ytPlayerRef.current.seekTo(resumePosition, true); 
-                setPosition(resumePosition);
-                setGlobalPos(resumePosition);
+                ytPlayerRef.current.seekTo(position, true); 
               } catch (error) {
                 console.error('Failed to seek to last position:', error);
               }
@@ -257,7 +264,7 @@ export const MiniPlayer: React.FC = () => {
       ytPlayerRef.current = null;
       videoSessionIdRef.current = null;
     };
-  }, [isVideo, meta?.video?.id, isPlaying]);
+  }, [isVideo, meta?.video?.id, isPlaying, position]); // Depend on position to ensure it's set before ytPlayer.seekTo
 
   // Persist video progress on tab hidden / unload
   useEffect(() => {
@@ -343,6 +350,8 @@ export const MiniPlayer: React.FC = () => {
     setGlobalPos(v);
     if (isPodcast && audioRef.current) {
       audioRef.current.currentTime = v;
+    } else if (isVideo && ytPlayerRef.current) {
+      ytPlayerRef.current.seekTo(v, true);
     }
   };
 

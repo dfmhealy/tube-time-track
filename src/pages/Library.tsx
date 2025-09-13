@@ -15,9 +15,10 @@ import {
   DropdownMenuItem, 
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
+import { usePlayerStore } from '@/store/playerStore'; // Import usePlayerStore
 
 export function Library() {
-  const { searchQuery, setSearchQuery, setCurrentVideo, setCurrentView } = useAppStore();
+  const { searchQuery, setSearchQuery } = useAppStore(); // Removed setCurrentVideo, setCurrentView
   const { 
     videos, 
     setVideos, 
@@ -34,6 +35,7 @@ export function Library() {
   const [filteredVideos, setFilteredVideos] = useState(videos);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const player = usePlayerStore(); // Initialize player store
 
   // Load videos on mount
   useEffect(() => {
@@ -110,8 +112,7 @@ export function Library() {
   };
 
   const handlePlayVideo = (video: Video) => {
-    setCurrentVideo(video);
-    setCurrentView('player');
+    player.play({ type: 'video', id: video.id }); // Use mini-player for videos
   };
 
   const handleDeleteVideo = async (videoId: string) => {

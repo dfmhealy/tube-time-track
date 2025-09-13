@@ -4,7 +4,7 @@ import type { Video, WatchSession, UserStats } from '@/lib/database';
 
 interface AppState {
   // UI State
-  currentView: 'home' | 'library' | 'podcasts' | 'player' | 'stats' | 'settings';
+  currentView: 'home' | 'library' | 'podcasts' | 'stats' | 'settings';
   isLoading: boolean;
   error: string | null;
   

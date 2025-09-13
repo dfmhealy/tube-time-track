@@ -2,7 +2,6 @@ import { Layout } from '@/components/Layout';
 import { Home } from './Home';
 import { Library } from './Library';
 import { Podcasts } from './Podcasts';
-import { PlayerView } from './PlayerView';
 import { Stats } from './Stats';
 import Settings from './Settings';
 import { useAppStore } from '@/store/appStore';
@@ -20,8 +19,6 @@ const Index = () => {
         return <Stats />;
       case 'settings':
         return <Settings />;
-      case 'player':
-        return <PlayerView />;
       default:
         return <Home />;
     }
