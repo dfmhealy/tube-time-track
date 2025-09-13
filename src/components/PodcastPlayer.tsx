@@ -222,7 +222,14 @@ export function PodcastPlayer({ episode, onClose, onEpisodeUpdate }: PodcastPlay
           const now = Date.now();
           const deltaSeconds = (now - lastUpdate) / 1000;
           
+          // Validate delta to prevent time inflation from browser throttling
+          if (deltaSeconds > 2) {
+            lastUpdate = now;
+            return;
+          }
+          
           setSessionListenTime(prev => prev + deltaSeconds);
+          
           // Add time in whole seconds to avoid inflatable totals
           if (deltaSeconds >= 1) {
             await dailyTimeTracker.addTime(Math.floor(deltaSeconds));
@@ -231,9 +238,16 @@ export function PodcastPlayer({ episode, onClose, onEpisodeUpdate }: PodcastPlay
           const currentSeconds = Math.floor(audioRef.current.currentTime);
           const duration = audioRef.current.duration;
           
-          // Check completion once when truly near the end
+          // Validate audio position
+          if (currentSeconds < 0 || (duration && currentSeconds > duration)) {
+            lastUpdate = now;
+            return;
+          }
+          
+          // Check completion once when truly near the end (90% or 1 minute remaining)
           const remainingTime = duration - currentSeconds;
-          if (!markedCompleteRef.current && duration >= 120 && remainingTime <= 60) {
+          if (!markedCompleteRef.current && duration > 0 && 
+              (currentSeconds >= duration * 0.9 || (duration >= 120 && remainingTime <= 60))) {
             try {
               await PodcastDatabaseService.markEpisodeAsCompleted(episode.id);
               // Update local episode state
@@ -253,6 +267,8 @@ export function PodcastPlayer({ episode, onClose, onEpisodeUpdate }: PodcastPlay
               seconds_listened: currentSeconds,
               avg_playback_rate: playbackRate
             });
+            // Also update episode progress for resume functionality
+            await PodcastDatabaseService.updateEpisodeProgress(episode.id, currentSeconds);
           } catch (error) {
             console.error('Failed to update session:', error);
           }
@@ -296,17 +312,24 @@ export function PodcastPlayer({ episode, onClose, onEpisodeUpdate }: PodcastPlay
   const handleSeek = useCallback((value: number[]) => {
     if (audioRef.current) {
       const newTime = value[0];
-      audioRef.current.currentTime = newTime;
-      setCurrentTime(newTime);
+      // Validate seek position
+      const maxTime = audioRef.current.duration || duration;
+      const validTime = Math.max(0, Math.min(newTime, maxTime));
+      
+      audioRef.current.currentTime = validTime;
+      setCurrentTime(validTime);
     }
   }, []);
 
   const handleVolumeChange = useCallback((value: number[]) => {
     if (audioRef.current) {
       const newVolume = value[0];
-      audioRef.current.volume = newVolume;
-      setVolume(newVolume);
-      setIsMuted(newVolume === 0);
+      // Validate volume range
+      const validVolume = Math.max(0, Math.min(1, newVolume));
+      
+      audioRef.current.volume = validVolume;
+      setVolume(validVolume);
+      setIsMuted(validVolume === 0);
     }
   }, []);
 
@@ -324,8 +347,11 @@ export function PodcastPlayer({ episode, onClose, onEpisodeUpdate }: PodcastPlay
 
   const handlePlaybackRateChange = useCallback((rate: number) => {
     if (audioRef.current) {
-      audioRef.current.playbackRate = rate;
-      setPlaybackRate(rate);
+      // Validate playback rate range
+      const validRate = Math.max(0.25, Math.min(4, rate));
+      
+      audioRef.current.playbackRate = validRate;
+      setPlaybackRate(validRate);
     }
   }, []);
 

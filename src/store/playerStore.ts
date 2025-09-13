@@ -31,6 +31,9 @@ interface PlayerState {
   setRate: (rate: number) => void;
   setVolume: (vol: number) => void;
   setMuted: (muted: boolean) => void;
+  // Add queue management helpers
+  getQueueLength: () => number;
+  isInQueue: (id: string) => boolean;
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -53,15 +56,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ current: next, queue: rest, isPlaying: true, positionSeconds: 0 });
   },
   prev: () => {
-    // Simple prev: no history for now
+    // TODO: Implement previous functionality with history
+    console.log('Previous functionality not implemented yet');
   },
   enqueueNext: (item) => {
     const { queue } = get();
-    set({ queue: [item, ...queue] });
+    // Prevent duplicate items in queue
+    const filteredQueue = queue.filter(q => !(q.type === item.type && q.id === item.id));
+    set({ queue: [item, ...filteredQueue] });
   },
   enqueueLast: (item) => {
     const { queue } = get();
-    set({ queue: [...queue, item] });
+    // Prevent duplicate items in queue
+    const filteredQueue = queue.filter(q => !(q.type === item.type && q.id === item.id));
+    set({ queue: [...filteredQueue, item] });
   },
   removeFromQueue: (id) => {
     const { queue } = get();
@@ -72,4 +80,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setRate: (rate) => set({ playbackRate: Math.max(0.25, Math.min(3, rate)) }),
   setVolume: (vol) => set({ volume: Math.max(0, Math.min(1, vol)) }),
   setMuted: (muted) => set({ muted }),
+  getQueueLength: () => get().queue.length,
+  isInQueue: (id) => get().queue.some(item => item.id === id),
 }));
