@@ -107,14 +107,19 @@ export const MiniPlayer: React.FC = () => {
       const ep = meta.podcast;
 
       try {
-        // Use the position already set by the metadata effect
-        audioRef.current.currentTime = position;
+        audioRef.current.currentTime = position; // Use the position already set by the metadata effect
         audioRef.current.src = ep.audio_url;
         audioRef.current.playbackRate = playbackRate;
         audioRef.current.volume = muted ? 0 : volume;
 
         const s = await PodcastDatabaseService.startListenSession(ep.id);
         setSession(s);
+
+        // Immediately attempt to play if isPlaying is true
+        if (isPlaying) {
+          audioRef.current.play().catch(e => console.error("Autoplay failed for podcast:", e));
+        }
+
       } catch (error) {
         console.error('Failed to setup podcast audio:', error);
       }
@@ -126,7 +131,7 @@ export const MiniPlayer: React.FC = () => {
       progressTimer.current = null;
       setSession(null);
     };
-  }, [isPodcast, meta?.podcast?.id, position]); // Depend on position to ensure it's set before audio.currentTime
+  }, [isPodcast, meta?.podcast?.id, position, isPlaying]); // Added isPlaying to dependencies
 
   // Setup YouTube mini-player for videos
   useEffect(() => {
@@ -148,7 +153,13 @@ export const MiniPlayer: React.FC = () => {
         const s = await DatabaseService.startWatchSession(meta.video.id);
         videoSessionIdRef.current = s.id;
         if (!mounted) return;
-        // Create hidden/small player
+        
+        // Destroy existing player if it exists before creating a new one
+        if (ytPlayerRef.current && ytPlayerRef.current.destroy) {
+          try { ytPlayerRef.current.destroy(); } catch {}
+          ytPlayerRef.current = null;
+        }
+
         ytPlayerRef.current = new (window as any).YT.Player(ytContainerRef.current, {
           height: '0',
           width: '0',
@@ -165,6 +176,7 @@ export const MiniPlayer: React.FC = () => {
                 console.error('Failed to seek to last position:', error);
               }
               
+              // Only play if `isPlaying` is true at the time of onReady
               if (isPlaying) {
                 try { 
                   ytPlayerRef.current.playVideo(); 
@@ -264,7 +276,35 @@ export const MiniPlayer: React.FC = () => {
       ytPlayerRef.current = null;
       videoSessionIdRef.current = null;
     };
-  }, [isVideo, meta?.video?.id, isPlaying, position]); // Depend on position to ensure it's set before ytPlayer.seekTo
+  }, [isVideo, meta?.video?.id, position, isPlaying]); // Added isPlaying to dependencies
+
+  // Control playback state for audio (podcasts)
+  useEffect(() => {
+    if (isPodcast && audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.play().catch(e => console.error("Podcast playback failed:", e));
+      } else {
+        audioRef.current.pause();
+      }
+    }
+  }, [isPlaying, isPodcast]);
+
+  // Control playback state for YouTube (videos)
+  useEffect(() => {
+    if (isVideo && ytPlayerRef.current) {
+      const YT = (window as any).YT;
+      if (isPlaying) {
+        if (ytPlayerRef.current.getPlayerState() !== YT.PlayerState.PLAYING) {
+          try { ytPlayerRef.current.playVideo(); } catch (e) { console.error("YT play failed:", e); }
+        }
+      } else {
+        if (ytPlayerRef.current.getPlayerState() !== YT.PlayerState.PAUSED) {
+          try { ytPlayerRef.current.pauseVideo(); } catch (e) { console.error("YT pause failed:", e); }
+        }
+      }
+    }
+  }, [isPlaying, isVideo]);
+
 
   // Persist video progress on tab hidden / unload
   useEffect(() => {
@@ -294,15 +334,7 @@ export const MiniPlayer: React.FC = () => {
     };
   }, [meta?.video?.id]);
 
-  // Control playback state
-  useEffect(() => {
-    if (isPodcast && audioRef.current) {
-      if (isPlaying) audioRef.current.play().catch(() => {});
-      else audioRef.current.pause();
-    }
-  }, [isPlaying, isPodcast]);
-
-  // Track progress and persist
+  // Track progress and persist for podcasts
   useEffect(() => {
     if (!isPodcast || !session || !audioRef.current) return;
     if (progressTimer.current) window.clearInterval(progressTimer.current);
