@@ -5,30 +5,53 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { MiniPlayer } from "@/components/MiniPlayer";
+import { PlayerView } from "@/components/PlayerView"; // Import PlayerView
+import { QueueDrawer } from "@/components/QueueDrawer"; // Import QueueDrawer
 import { useAuth } from "@/contexts/AuthContext";
+import { usePlayerStore } from "@/store/playerStore"; // Import player store
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import PublicHome from "./pages/PublicHome";
 import NotFound from "./pages/NotFound";
 import Subscriptions from "./pages/Subscriptions";
+import React from "react";
 
 const queryClient = new QueryClient();
 
 const App = () => {
+  // Ref for the YouTube iframe element, shared between MiniPlayer and PlayerView
+  const youtubeIframeRef = React.useRef<HTMLDivElement>(null);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          {/* Persistent mini-player for podcasts/videos */}
-          <MiniPlayer />
+          {/* Persistent MiniPlayer and QueueDrawer */}
+          <MiniPlayer youtubeIframeRef={youtubeIframeRef} />
+          <QueueDrawer />
+          
+          {/* PlayerView (full screen video player) - conditionally rendered */}
+          <PlayerViewWrapper youtubeIframeRef={youtubeIframeRef} />
+
           <AppRoutes />
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
   );
 };
+
+// Wrapper component to conditionally render PlayerView based on player store state
+function PlayerViewWrapper({ youtubeIframeRef }: { youtubeIframeRef: React.RefObject<HTMLDivElement> }) {
+  const { current, isPlayerViewOpen } = usePlayerStore();
+  const isVideoPlaying = current?.type === 'video';
+
+  if (isPlayerViewOpen && isVideoPlaying) {
+    return <PlayerView youtubeIframeRef={youtubeIframeRef} />;
+  }
+  return null;
+}
 
 function AppRoutes() {
   const { user, loading } = useAuth();

@@ -18,7 +18,7 @@ import {
 import { usePlayerStore } from '@/store/playerStore'; // Import usePlayerStore
 
 export function Library() {
-  const { searchQuery, setSearchQuery } = useAppStore(); // Removed setCurrentVideo, setCurrentView
+  const { searchQuery, setSearchQuery } = useAppStore();
   const { 
     videos, 
     setVideos, 
@@ -35,7 +35,7 @@ export function Library() {
   const [filteredVideos, setFilteredVideos] = useState(videos);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const player = usePlayerStore(); // Initialize player store
+  // const player = usePlayerStore(); // No longer directly used here, VideoCard handles it
 
   // Load videos on mount
   useEffect(() => {
@@ -90,8 +90,8 @@ export function Library() {
           comparison = new Date(a.addedAt).getTime() - new Date(b.addedAt).getTime();
           break;
         case 'watchTime':
-          // This would need to be implemented with actual watch time data
-          comparison = 0;
+          // Sort by total watch seconds (descending)
+          comparison = a.watchSeconds - b.watchSeconds;
           break;
         default:
           comparison = 0;
@@ -111,10 +111,7 @@ export function Library() {
     );
   };
 
-  const handlePlayVideo = (video: Video) => {
-    player.play({ type: 'video', id: video.id }); // Use mini-player for videos
-  };
-
+  // VideoCard now handles onPlay internally, so we only need onDelete here
   const handleDeleteVideo = async (videoId: string) => {
     try {
       await DatabaseService.deleteVideo(videoId);
@@ -303,7 +300,6 @@ export function Library() {
             <VideoCard 
               key={video.id} 
               video={video}
-              onPlay={handlePlayVideo}
               onDelete={handleDeleteVideo}
               className={viewMode === 'list' ? 'flex-row' : ''}
             />

@@ -27,8 +27,8 @@ export interface PodcastEpisode {
   season_number?: number;
   publish_date?: string;
   thumbnail_url?: string;
-  last_position_seconds?: number;
-  is_completed?: boolean;
+  last_position_seconds: number; // Added for resume functionality
+  is_completed: boolean; // Added for completion tracking
   created_at: string;
   updated_at: string;
   podcast?: Podcast;
@@ -91,10 +91,14 @@ export const PodcastDatabaseService = {
     return data;
   },
 
-  async createEpisode(episode: Omit<PodcastEpisode, 'id' | 'created_at' | 'updated_at'>): Promise<PodcastEpisode> {
+  async createEpisode(episode: Omit<PodcastEpisode, 'id' | 'created_at' | 'updated_at' | 'last_position_seconds' | 'is_completed'>): Promise<PodcastEpisode> {
     const { data, error } = await supabase
       .from('podcast_episodes')
-      .insert(episode)
+      .insert({
+        ...episode,
+        last_position_seconds: 0, // Initialize new field
+        is_completed: false // Initialize new field
+      })
       .select()
       .single();
     
@@ -104,7 +108,7 @@ export const PodcastDatabaseService = {
 
   async importPodcastWithEpisodes(
     podcastData: Omit<Podcast, 'id' | 'created_at' | 'updated_at'>,
-    episodesData: Omit<PodcastEpisode, 'id' | 'podcast_id' | 'created_at' | 'updated_at'>[]
+    episodesData: Omit<PodcastEpisode, 'id' | 'podcast_id' | 'created_at' | 'updated_at' | 'last_position_seconds' | 'is_completed'>[]
   ): Promise<{ podcast: Podcast; episodes: PodcastEpisode[] }> {
     // Check if podcast already exists by RSS URL or title
     if (podcastData.rss_url) {
@@ -130,7 +134,9 @@ export const PodcastDatabaseService = {
       const batch = episodesData.slice(i, i + batchSize);
       const episodesToInsert = batch.map(ep => ({
         ...ep,
-        podcast_id: podcast.id
+        podcast_id: podcast.id,
+        last_position_seconds: 0, // Initialize new field
+        is_completed: false // Initialize new field
       }));
 
       const { data, error } = await supabase
@@ -144,7 +150,11 @@ export const PodcastDatabaseService = {
       }
 
       if (data) {
-        episodes.push(...data);
+        episodes.push(...data.map(ep => ({
+          ...ep,
+          last_position_seconds: ep.last_position_seconds || 0,
+          is_completed: ep.is_completed || false
+        })));
       }
     }
 
@@ -177,7 +187,11 @@ export const PodcastDatabaseService = {
       .order('episode_number', { ascending: false });
     
     if (error) throw new Error(`Failed to fetch episodes: ${error.message}`);
-    return data || [];
+    return (data || []).map(ep => ({
+      ...ep,
+      last_position_seconds: ep.last_position_seconds || 0,
+      is_completed: ep.is_completed || false
+    }));
   },
 
   async getEpisode(id: string): Promise<PodcastEpisode | undefined> {
@@ -194,7 +208,11 @@ export const PodcastDatabaseService = {
       if (error.code === 'PGRST116') return undefined;
       throw new Error(`Failed to fetch episode: ${error.message}`);
     }
-    return data;
+    return data ? {
+      ...data,
+      last_position_seconds: data.last_position_seconds || 0,
+      is_completed: data.is_completed || false
+    } : undefined;
   },
 
   // Subscription operations
@@ -412,7 +430,7 @@ export const PodcastDatabaseService = {
     return Math.max(0, Math.floor(data[0].seconds_listened || 0));
   },
 
-  async markEpisodeAsCompleted(episodeId: string): Promise<void> {
+  async markEpisodeAsCompleted(episodeId: string, isCompleted: boolean = true): Promise<void> {
     // Check if already completed to avoid unnecessary updates
     const { data: currentEpisode } = await supabase
       .from('podcast_episodes')
@@ -420,11 +438,11 @@ export const PodcastDatabaseService = {
       .eq('id', episodeId)
       .single();
       
-    if (currentEpisode?.is_completed) return; // Already completed
+    if (currentEpisode?.is_completed === isCompleted) return; // Already in desired state
 
     const { error } = await supabase
       .from('podcast_episodes')
-      .update({ is_completed: true } as any)
+      .update({ is_completed: isCompleted } as any)
       .eq('id', episodeId);
     
     if (error) throw new Error(`Failed to mark episode as completed: ${error.message}`);
@@ -441,13 +459,23 @@ export const PodcastDatabaseService = {
     return data?.is_completed || false;
   },
 
-  async createEpisodes(episodes: Omit<PodcastEpisode, 'id' | 'created_at' | 'updated_at'>[]): Promise<PodcastEpisode[]> {
+  async createEpisodes(episodes: Omit<PodcastEpisode, 'id' | 'created_at' | 'updated_at' | 'last_position_seconds' | 'is_completed'>[]): Promise<PodcastEpisode[]> {
+    const episodesToInsert = episodes.map(ep => ({
+      ...ep,
+      last_position_seconds: 0,
+      is_completed: false
+    }));
+
     const { data, error } = await supabase
       .from('podcast_episodes')
-      .insert(episodes)
+      .insert(episodesToInsert)
       .select();
     
     if (error) throw new Error(`Failed to create episodes: ${error.message}`);
-    return data || [];
+    return (data || []).map(ep => ({
+      ...ep,
+      last_position_seconds: ep.last_position_seconds || 0,
+      is_completed: ep.is_completed || false
+    }));
   }
 };

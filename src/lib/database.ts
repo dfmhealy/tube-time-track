@@ -12,8 +12,8 @@ export interface Video {
   addedAt: string; // ISO string
   watchSeconds: number;
   lastWatchedAt: string | null;
-  lastPositionSeconds?: number;
-  isCompleted?: boolean;
+  lastPositionSeconds: number; // Added for resume functionality
+  isCompleted: boolean; // Added for completion tracking
 }
 
 export interface WatchSession {
@@ -46,7 +46,7 @@ export interface UserPreferences {
 // Database utility functions
 export const DatabaseService = {
   // Video operations
-  async addVideo(video: Omit<Video, 'id' | 'watchSeconds' | 'lastWatchedAt'>): Promise<Video> {
+  async addVideo(video: Omit<Video, 'id' | 'watchSeconds' | 'lastWatchedAt' | 'lastPositionSeconds' | 'isCompleted'>): Promise<Video> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
@@ -62,7 +62,9 @@ export const DatabaseService = {
         tags: video.tags,
         added_at: video.addedAt,
         watch_seconds: 0,
-        last_watched_at: null
+        last_watched_at: null,
+        last_position_seconds: 0, // Initialize new field
+        is_completed: false // Initialize new field
       })
       .select()
       .single();
@@ -79,7 +81,9 @@ export const DatabaseService = {
       tags: data.tags,
       addedAt: data.added_at,
       watchSeconds: data.watch_seconds,
-      lastWatchedAt: data.last_watched_at
+      lastWatchedAt: data.last_watched_at,
+      lastPositionSeconds: (data as any).last_position_seconds || 0,
+      isCompleted: (data as any).is_completed || false
     };
   },
 
@@ -91,7 +95,7 @@ export const DatabaseService = {
     const validPosition = Math.max(0, Math.floor(lastPositionSeconds || 0));
     
     // Don't update if position is 0 (avoid unnecessary database calls)
-    if (validPosition === 0) return;
+    // if (validPosition === 0) return; // Removed this check to allow resetting position
 
     const { error } = await supabase
       .from('videos')
@@ -387,7 +391,7 @@ export const DatabaseService = {
     return sessions.reduce((total, session) => total + session.secondsWatched, 0);
   },
 
-  async markVideoAsCompleted(videoId: string): Promise<void> {
+  async markVideoAsCompleted(videoId: string, isCompleted: boolean = true): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
@@ -399,11 +403,11 @@ export const DatabaseService = {
       .eq('user_id', user.id)
       .single();
       
-    if (currentVideo?.is_completed) return; // Already completed
+    if (currentVideo?.is_completed === isCompleted) return; // Already in desired state
 
     const { error } = await supabase
       .from('videos')
-      .update({ is_completed: true } as any)
+      .update({ is_completed: isCompleted } as any)
       .eq('id', videoId)
       .eq('user_id', user.id);
     

@@ -2,18 +2,21 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Play, Clock, Trash2, RotateCcw, CheckCircle } from 'lucide-react';
+import { Play, Clock, Trash2, RotateCcw, CheckCircle, ListPlus } from 'lucide-react'; // Added ListPlus icon
 import { formatDuration, cn } from '@/lib/utils';
 import type { Video } from '@/lib/database';
+import { usePlayerStore } from '@/store/playerStore'; // Import usePlayerStore
+import { toast } from 'sonner'; // Import toast for notifications
 
 interface VideoCardProps {
   video: Video;
-  onPlay: (video: Video) => void;
   onDelete: (videoId: string) => void;
   className?: string;
 }
 
-export function VideoCard({ video, onPlay, onDelete, className }: VideoCardProps) {
+export function VideoCard({ video, onDelete, className }: VideoCardProps) {
+  const player = usePlayerStore();
+
   // Validate all numeric values
   const duration = Math.max(0, video.durationSeconds || 0);
   const watchSeconds = Math.max(0, video.watchSeconds || 0);
@@ -37,6 +40,44 @@ export function VideoCard({ video, onPlay, onDelete, className }: VideoCardProps
   const hasProgress = actualProgress > 30;
   const isCompleted = video.isCompleted || actualProgressPercent >= 90;
 
+  const handlePlay = () => {
+    player.play({
+      type: 'video',
+      id: video.id,
+      title: video.title,
+      thumbnailUrl: video.thumbnailUrl,
+      channelTitle: video.channelTitle,
+      durationSeconds: video.durationSeconds,
+      lastPositionSeconds: video.lastPositionSeconds,
+    }, video.lastPositionSeconds || 0);
+  };
+
+  const handleEnqueueNext = () => {
+    player.enqueueNext({
+      type: 'video',
+      id: video.id,
+      title: video.title,
+      thumbnailUrl: video.thumbnailUrl,
+      channelTitle: video.channelTitle,
+      durationSeconds: video.durationSeconds,
+      lastPositionSeconds: video.lastPositionSeconds,
+    });
+    toast.success(`"${video.title}" added to play next.`);
+  };
+
+  const handleEnqueueLast = () => {
+    player.enqueueLast({
+      type: 'video',
+      id: video.id,
+      title: video.title,
+      thumbnailUrl: video.thumbnailUrl,
+      channelTitle: video.channelTitle,
+      durationSeconds: video.durationSeconds,
+      lastPositionSeconds: video.lastPositionSeconds,
+    });
+    toast.success(`"${video.title}" added to end of queue.`);
+  };
+
   return (
     <Card className={cn(
       "group overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-1 bg-card/50 backdrop-blur-sm border-border/50",
@@ -53,7 +94,7 @@ export function VideoCard({ video, onPlay, onDelete, className }: VideoCardProps
         {/* Play overlay */}
         <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
           <Button
-            onClick={() => onPlay(video)}
+            onClick={handlePlay}
             size="lg"
             className="bg-primary/90 hover:bg-primary text-primary-foreground rounded-full h-16 w-16 p-0 shadow-lg backdrop-blur-sm"
           >
@@ -94,7 +135,7 @@ export function VideoCard({ video, onPlay, onDelete, className }: VideoCardProps
           <div className="flex-1 min-w-0 mr-2">
             <h3 
               className="font-semibold text-sm leading-tight line-clamp-2 group-hover:text-primary transition-colors cursor-pointer"
-              onClick={() => onPlay(video)}
+              onClick={handlePlay}
               title={video.title}
             >
               {video.title}
@@ -142,15 +183,36 @@ export function VideoCard({ video, onPlay, onDelete, className }: VideoCardProps
             )}
           </div>
 
-          {/* Delete button */}
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-            onClick={() => onDelete(video.id)}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {/* Action buttons */}
+          <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
+              onClick={handleEnqueueNext}
+              title="Play Next"
+            >
+              <ListPlus className="h-4 w-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
+              onClick={handleEnqueueLast}
+              title="Add to Queue"
+            >
+              <ListPlus className="h-4 w-4 rotate-180" /> {/* Flipped icon for 'add to end' */}
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+              onClick={() => onDelete(video.id)}
+              title="Delete Video"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>

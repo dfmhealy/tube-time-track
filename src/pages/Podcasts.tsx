@@ -13,7 +13,8 @@ import {
   Search, 
   TrendingUp, 
   ArrowUpDown, 
-  ChevronDown 
+  ChevronDown,
+  ListPlus
 } from 'lucide-react';
 import { cn, formatDuration } from '@/lib/utils';
 import { PodcastDatabaseService, type Podcast, type PodcastEpisode, type PodcastSubscription } from '@/lib/podcastDatabase';
@@ -137,7 +138,9 @@ export function Podcasts() {
           // Import new episodes to database
           const episodesToImport = uniqueNewEpisodes.slice(0, 25).map(ep => ({
             ...ep,
-            podcast_id: selectedPodcast.id
+            podcast_id: selectedPodcast.id,
+            last_position_seconds: 0, // Initialize new field
+            is_completed: false // Initialize new field
           }));
           
           await PodcastDatabaseService.createEpisodes(episodesToImport);
@@ -273,7 +276,9 @@ export function Podcasts() {
           episode_number: ep.episode_number,
           season_number: ep.season_number,
           publish_date: ep.publish_date,
-          thumbnail_url: ep.thumbnail_url
+          thumbnail_url: ep.thumbnail_url,
+          last_position_seconds: 0, // Initialize new field
+          is_completed: false // Initialize new field
         }))
       );
       
@@ -296,7 +301,9 @@ export function Podcasts() {
                 season_number: ep.season_number,
                 publish_date: ep.publish_date,
                 thumbnail_url: ep.thumbnail_url,
-                podcast_id: podcast.id // Ensure podcast_id is set for new episodes
+                podcast_id: podcast.id, // Ensure podcast_id is set for new episodes
+                last_position_seconds: 0, // Initialize new field
+                is_completed: false // Initialize new field
               }))
             );
           } catch (error) {
@@ -354,6 +361,44 @@ export function Podcasts() {
   );
 
   const subscribedPodcasts = subscriptions.map(sub => sub.podcast).filter(Boolean) as Podcast[];
+
+  const handlePlayEpisode = (episode: PodcastEpisode) => {
+    player.play({
+      type: 'podcast',
+      id: episode.id,
+      title: episode.title,
+      thumbnailUrl: episode.thumbnail_url || selectedPodcast?.thumbnail_url || '',
+      creator: episode.podcast?.creator || selectedPodcast?.creator || '',
+      durationSeconds: episode.duration_seconds,
+      lastPositionSeconds: episode.last_position_seconds,
+    }, episode.last_position_seconds || 0);
+  };
+
+  const handleEnqueueNextEpisode = (episode: PodcastEpisode) => {
+    player.enqueueNext({
+      type: 'podcast',
+      id: episode.id,
+      title: episode.title,
+      thumbnailUrl: episode.thumbnail_url || selectedPodcast?.thumbnail_url || '',
+      creator: episode.podcast?.creator || selectedPodcast?.creator || '',
+      durationSeconds: episode.duration_seconds,
+      lastPositionSeconds: episode.last_position_seconds,
+    });
+    toast.success(`"${episode.title}" added to play next.`);
+  };
+
+  const handleEnqueueLastEpisode = (episode: PodcastEpisode) => {
+    player.enqueueLast({
+      type: 'podcast',
+      id: episode.id,
+      title: episode.title,
+      thumbnailUrl: episode.thumbnail_url || selectedPodcast?.thumbnail_url || '',
+      creator: episode.podcast?.creator || selectedPodcast?.creator || '',
+      durationSeconds: episode.duration_seconds,
+      lastPositionSeconds: episode.last_position_seconds,
+    });
+    toast.success(`"${episode.title}" added to end of queue.`);
+  };
 
   if (loading) {
     return (
@@ -755,7 +800,7 @@ export function Podcasts() {
                           <div className="flex items-start gap-4">
                             <div className="flex flex-col gap-2 mt-1">
                               <Button
-                                onClick={() => player.play({ type: 'podcast', id: episode.id })}
+                                onClick={() => handlePlayEpisode(episode)}
                                 size="sm"
                                 className="bg-primary hover:bg-primary/90"
                               >
@@ -764,44 +809,16 @@ export function Podcasts() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  // Check if already in queue
-                                  if (!player.isInQueue(episode.id)) {
-                                    player.enqueueNext({ type: 'podcast', id: episode.id });
-                                    toast({
-                                      title: "Added to queue",
-                                      description: "Episode will play next"
-                                    });
-                                  } else {
-                                    toast({
-                                      title: "Already in queue", 
-                                      description: "This episode is already queued"
-                                    });
-                                  }
-                                }}
+                                onClick={() => handleEnqueueNextEpisode(episode)}
                               >
-                                Play Next
+                                <ListPlus className="w-3 h-3" /> Play Next
                               </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  // Check if already in queue
-                                  if (!player.isInQueue(episode.id)) {
-                                    player.enqueueLast({ type: 'podcast', id: episode.id });
-                                    toast({
-                                      title: "Added to queue",
-                                      description: "Episode added to end of queue"
-                                    });
-                                  } else {
-                                    toast({
-                                      title: "Already in queue",
-                                      description: "This episode is already queued"
-                                    });
-                                  }
-                                }}
+                                onClick={() => handleEnqueueLastEpisode(episode)}
                               >
-                                Play Last
+                                <ListPlus className="w-3 h-3 rotate-180" /> Play Last
                               </Button>
                             </div>
                             <div className="flex-1 min-w-0">

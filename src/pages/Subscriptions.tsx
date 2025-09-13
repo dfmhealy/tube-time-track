@@ -5,6 +5,9 @@ import { useNavigate } from 'react-router-dom';
 import { DatabaseService, type Video } from '@/lib/database';
 import { useToast } from '@/hooks/use-toast';
 import { usePlayerStore } from '@/store/playerStore';
+import { Play, ListPlus } from 'lucide-react'; // Import ListPlus icon
+import { formatDuration } from '@/lib/utils'; // Import formatDuration
+import { toast as sonnerToast } from 'sonner'; // Import sonner toast
 
 export default function Subscriptions() {
   const [channels, setChannels] = useState<string[]>([]);
@@ -13,6 +16,7 @@ export default function Subscriptions() {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
   const navigate = useNavigate();
+  const player = usePlayerStore();
 
   useEffect(() => {
     (async () => {
@@ -33,7 +37,54 @@ export default function Subscriptions() {
     return selectedChannel ? videos.filter(v => v.channelTitle === selectedChannel) : videos;
   }, [videos, selectedChannel]);
 
-  const player = usePlayerStore();
+  const handlePlayVideo = (video: Video) => {
+    player.play({
+      type: 'video',
+      id: video.id,
+      title: video.title,
+      thumbnailUrl: video.thumbnailUrl,
+      channelTitle: video.channelTitle,
+      durationSeconds: video.durationSeconds,
+      lastPositionSeconds: video.lastPositionSeconds,
+    }, video.lastPositionSeconds || 0);
+  };
+
+  const handleEnqueueNext = (video: Video) => {
+    player.enqueueNext({
+      type: 'video',
+      id: video.id,
+      title: video.title,
+      thumbnailUrl: video.thumbnailUrl,
+      channelTitle: video.channelTitle,
+      durationSeconds: video.durationSeconds,
+      lastPositionSeconds: video.lastPositionSeconds,
+    });
+    sonnerToast.success(`"${video.title}" added to play next.`);
+  };
+
+  const handleEnqueueLast = (video: Video) => {
+    player.enqueueLast({
+      type: 'video',
+      id: video.id,
+      title: video.title,
+      thumbnailUrl: video.thumbnailUrl,
+      channelTitle: video.channelTitle,
+      durationSeconds: video.durationSeconds,
+      lastPositionSeconds: video.lastPositionSeconds,
+    });
+    sonnerToast.success(`"${video.title}" added to end of queue.`);
+  };
+
+  if (loading) {
+    return (
+      <div className="max-w-6xl mx-auto p-6">
+        <div className="text-center py-16">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading subscriptions...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
@@ -81,24 +132,42 @@ export default function Subscriptions() {
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map(v => (
-          <Card key={v.id} className="p-3 bg-card/60 border-border/60">
-            <CardContent className="p-0">
-              <div className="flex gap-3">
-                <img src={v.thumbnailUrl} alt={v.title} className="w-28 h-16 rounded object-cover" />
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium line-clamp-2">{v.title}</div>
-                  <div className="text-xs text-muted-foreground">{v.channelTitle}</div>
-                  <div className="mt-2 flex gap-2">
-                    <Button size="sm" onClick={() => player.play({ type: 'video', id: v.id })}>Play Now</Button>
-                    <Button size="sm" variant="outline" onClick={() => player.enqueueNext({ type: 'video', id: v.id })}>Play Next</Button>
-                    <Button size="sm" variant="outline" onClick={() => player.enqueueLast({ type: 'video', id: v.id })}>Play Last</Button>
+        {filtered.length === 0 ? (
+          <div className="col-span-full text-center py-12 text-muted-foreground">
+            No videos found for this channel.
+          </div>
+        ) : (
+          filtered.map(v => (
+            <Card key={v.id} className="p-3 bg-card/60 border-border/60">
+              <CardContent className="p-0">
+                <div className="flex gap-3">
+                  <img src={v.thumbnailUrl} alt={v.title} className="w-28 h-16 rounded object-cover" />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium line-clamp-2">{v.title}</div>
+                    <div className="text-xs text-muted-foreground">{v.channelTitle}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {formatDuration(v.durationSeconds)}
+                      {v.lastPositionSeconds && v.lastPositionSeconds > 0 && (
+                        <span className="ml-2 text-primary">Resumes at {formatDuration(v.lastPositionSeconds)}</span>
+                      )}
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <Button size="sm" onClick={() => handlePlayVideo(v)}>
+                        <Play className="h-4 w-4 mr-1" /> Play Now
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleEnqueueNext(v)}>
+                        <ListPlus className="h-4 w-4 mr-1" /> Next
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleEnqueueLast(v)}>
+                        <ListPlus className="h-4 w-4 mr-1 rotate-180" /> Last
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
     </div>
   );

@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 
 export function Home() {
   const { user } = useAuth();
-  const { setCurrentView, setCurrentVideo, dailyGoal } = useAppStore();
+  const { dailyGoal } = useAppStore(); // Removed setCurrentVideo, setCurrentView
   const { userStats } = useStatsStore();
   const { videos, setVideos, removeVideo } = useLibraryStore();
   const [recentVideos, setRecentVideos] = useState<Video[]>([]);
@@ -53,11 +53,7 @@ export function Home() {
     fetchData();
   }, [dailyGoal, videos.length, setVideos]);
 
-  const handlePlayVideo = (video: Video) => {
-    setCurrentVideo(video);
-    setCurrentView('player');
-  };
-
+  // VideoCard now handles onPlay internally, so we only need onDelete here
   const handleDeleteVideo = async (videoId: string) => {
     try {
       await DatabaseService.deleteVideo(videoId);
@@ -148,7 +144,7 @@ export function Home() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-semibold">Continue Watching</h2>
-          <Button variant="ghost" onClick={() => setCurrentView('library')}>
+          <Button variant="ghost" onClick={() => useAppStore.setState({ currentView: 'library' })}>
             View All
           </Button>
         </div>
@@ -158,7 +154,6 @@ export function Home() {
               <VideoCard
                 key={video.id}
                 video={video}
-                onPlay={handlePlayVideo}
                 onDelete={handleDeleteVideo}
               />
             ))}
