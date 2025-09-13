@@ -6,6 +6,12 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatDuration(seconds: number): string {
+  // Validate input
+  if (typeof seconds !== 'number' || isNaN(seconds) || seconds < 0) {
+    return '0:00';
+  }
+  
+  const totalSeconds = Math.floor(seconds);
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const remainingSeconds = Math.floor(seconds % 60);
@@ -18,6 +24,12 @@ export function formatDuration(seconds: number): string {
 }
 
 export function formatTimeHMS(seconds: number): string {
+  // Validate input
+  if (typeof seconds !== 'number' || isNaN(seconds) || seconds < 0) {
+    return '0:00:00';
+  }
+  
+  const totalSeconds = Math.floor(seconds);
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const remainingSeconds = Math.floor(seconds % 60);

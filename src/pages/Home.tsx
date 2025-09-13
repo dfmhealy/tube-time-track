@@ -324,6 +324,8 @@ export function Home() {
                   onClick={() => {
                     // Play Now in mini-player queue
                     const player = usePlayerStore.getState();
+                    // Clear current queue and play immediately
+                    player.clearQueue();
                     player.play({ type: 'video', id: video.id });
                   }}
                   className="bg-white/20 hover:bg-white/30 text-white border-white/30"
@@ -336,7 +338,13 @@ export function Home() {
                   variant="outline"
                   onClick={() => {
                     const player = usePlayerStore.getState();
-                    player.enqueueNext({ type: 'video', id: video.id });
+                    // Check if already in queue to prevent duplicates
+                    if (!player.isInQueue(video.id)) {
+                      player.enqueueNext({ type: 'video', id: video.id });
+                      toast({ title: 'Added to queue', description: 'Video will play next' });
+                    } else {
+                      toast({ title: 'Already in queue', description: 'This video is already queued' });
+                    }
                   }}
                   className="border-white/30 text-white/80 hover:text-white hover:bg-white/10"
                 >
@@ -347,7 +355,13 @@ export function Home() {
                   variant="outline"
                   onClick={() => {
                     const player = usePlayerStore.getState();
-                    player.enqueueLast({ type: 'video', id: video.id });
+                    // Check if already in queue to prevent duplicates
+                    if (!player.isInQueue(video.id)) {
+                      player.enqueueLast({ type: 'video', id: video.id });
+                      toast({ title: 'Added to queue', description: 'Video added to end of queue' });
+                    } else {
+                      toast({ title: 'Already in queue', description: 'This video is already queued' });
+                    }
                   }}
                   className="border-white/30 text-white/80 hover:text-white hover:bg-white/10"
                 >

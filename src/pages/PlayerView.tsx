@@ -104,9 +104,17 @@ function PlayerViewContent() {
   }
 
   const updateWatchHistory = useCallback(async (session: WatchSession, seconds: number, rate: number): Promise<void> => {
-    if (!session?.id || seconds <= 0) return;
+    if (!session?.id || seconds < 0) return;
+    
+    // Validate inputs
+    const validSeconds = Math.max(0, Math.floor(seconds));
+    const validRate = Math.max(0.25, Math.min(4, rate));
+    
     try {
-      await DatabaseService.updateWatchSession(session.id, { secondsWatched: seconds, avgPlaybackRate: rate });
+      await DatabaseService.updateWatchSession(session.id, { 
+        secondsWatched: validSeconds, 
+        avgPlaybackRate: validRate 
+      });
     } catch (error) {
       console.error('Failed to update watch history:', error);
     }
@@ -117,19 +125,23 @@ function PlayerViewContent() {
     if (!session || !currentVideo) return;
     
     try {
-      const finalSeconds = Math.floor(watchedSeconds);
+      const finalSeconds = Math.max(0, Math.floor(watchedSeconds));
       if (finalSeconds > 0) {
         await DatabaseService.endWatchSession(session.id, finalSeconds);
+        
+        // Update video progress
+        await DatabaseService.updateVideoProgress(currentVideo.id, Math.floor(currentTime));
+        
+        // Refresh video data and update local state
         const video = await DatabaseService.getVideo(currentVideo.id);
         if (video) {
           updateVideo(currentVideo.id, {
-            watchSeconds: (video.watchSeconds || 0) + finalSeconds,
+            watchSeconds: video.watchSeconds || 0,
             lastWatchedAt: new Date().toISOString(),
             lastPositionSeconds: Math.floor(currentTime),
-            isCompleted: currentTime >= (duration * 0.9)
+            isCompleted: video.isCompleted || currentTime >= (duration * 0.9)
           });
         }
-        updateTotalSeconds(finalSeconds);
       }
     } finally {
       setActiveWatchSession(null);
@@ -357,10 +369,13 @@ function PlayerViewContent() {
 
   const seekTo = useCallback((time: number) => {
     if (!player) return;
-    player.seekTo(time, true);
-    setCurrentTime(time);
+    // Validate seek position
+    const validTime = Math.max(0, Math.min(time, duration));
+    
+    player.seekTo(validTime, true);
+    setCurrentTime(validTime);
     showControlsTemporarily();
-  }, [player, showControlsTemporarily]);
+  }, [player, showControlsTemporarily, duration]);
 
   const skip = useCallback((seconds: number) => {
     if (!player) return;
@@ -377,8 +392,11 @@ function PlayerViewContent() {
 
   const changePlaybackRate = useCallback((rate: number) => {
     if (!player) return;
-    player.setPlaybackRate(rate);
-    setPlaybackRate(rate);
+    // Validate playback rate
+    const validRate = Math.max(0.25, Math.min(4, rate));
+    
+    player.setPlaybackRate(validRate);
+    setPlaybackRate(validRate);
     showControlsTemporarily();
   }, [player, showControlsTemporarily]);
 

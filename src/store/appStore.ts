@@ -91,10 +91,13 @@ export const useStatsStore = create<StatsState>((set, get) => ({
   updateTotalSeconds: (additionalSeconds) => {
     const currentStats = get().userStats;
     if (currentStats) {
+      // Validate additional seconds
+      const validSeconds = Math.max(0, Math.floor(additionalSeconds));
+      
       set({
         userStats: {
           ...currentStats,
-          totalSeconds: currentStats.totalSeconds + additionalSeconds,
+          totalSeconds: currentStats.totalSeconds + validSeconds,
           lastWatchedAt: new Date().toISOString()
         }
       });
@@ -131,7 +134,14 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   }),
   updateVideo: (videoId, updates) => set({
     videos: get().videos.map(v => 
-      v.id === videoId ? { ...v, ...updates } : v
+      v.id === videoId ? { 
+        ...v, 
+        ...updates,
+        // Validate numeric fields
+        watchSeconds: updates.watchSeconds !== undefined ? Math.max(0, Math.floor(updates.watchSeconds)) : v.watchSeconds,
+        durationSeconds: updates.durationSeconds !== undefined ? Math.max(0, Math.floor(updates.durationSeconds)) : v.durationSeconds,
+        lastPositionSeconds: updates.lastPositionSeconds !== undefined ? Math.max(0, Math.floor(updates.lastPositionSeconds)) : v.lastPositionSeconds
+      } : v
     )
   }),
   setLibraryLoading: (loading) => set({ isLibraryLoading: loading }),
