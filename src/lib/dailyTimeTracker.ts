@@ -100,8 +100,8 @@ export class DailyTimeTracker {
         const timeSinceLastUpdate = Date.now() - this.lastUpdate;
         if (timeSinceLastUpdate > 10000 || this.dailyTime % 10 === 0) {
           await DatabaseService.updateUserStats({
-            totalSeconds: userStats.totalSeconds + inc,
-            lastWatchedAt: new Date().toISOString()
+            total_seconds: userStats.totalSeconds + inc, // Changed to snake_case
+            last_watched_at: new Date().toISOString() // Changed to snake_case
           });
           // Update Zustand store
           useStatsStore.getState().updateTotalSeconds(inc);

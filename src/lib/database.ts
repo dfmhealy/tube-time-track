@@ -65,8 +65,17 @@ export interface UserPreferences {
 }
 
 // Helper types for database operations
-type VideoInput = Omit<VideoInsert, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'watch_seconds' | 'last_watched_at' | 'last_position_seconds' | 'is_completed'>;
-type WatchSessionInput = Omit<WatchSessionInsert, 'id' | 'created_at' | 'updated_at'>;
+// Redefine VideoInput to use camelCase for application-level input
+export interface VideoInput {
+  youtubeId: string;
+  title: string;
+  channelTitle: string;
+  durationSeconds: number;
+  thumbnailUrl: string;
+  tags: string[];
+  addedAt: string; // ISO string
+}
+type WatchSessionInput = Omit<WatchSessionInsert, 'id'>;
 type UserStatsInput = Omit<UserStatsInsert, 'id' | 'user_id' | 'created_at' | 'updated_at'>;
 type UserPreferencesInput = Omit<UserPreferencesInsert, 'id' | 'user_id' | 'created_at' | 'updated_at'>;
 
@@ -336,8 +345,8 @@ export const DatabaseService = {
   async startWatchSession(videoId: string): Promise<WatchSession> {
     const userId = await getUserId();
     const now = new Date().toISOString();
-    const sessionData: WatchSessionInput = {
-      user_id: userId, // user_id is required in WatchSessionInsert
+    const sessionData: WatchSessionInsert = { // Changed to WatchSessionInsert
+      user_id: userId, 
       video_id: videoId,
       started_at: now,
       seconds_watched: 0,
@@ -450,7 +459,7 @@ export const DatabaseService = {
       .select('is_completed')
       .eq('id', videoId)
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle(); // Use maybeSingle to handle no results gracefully
       
     if (fetchError && fetchError.code !== 'PGRST116') throw fetchError; // Handle actual errors
     if (currentVideo?.is_completed === isCompleted) return; // Already in desired state
@@ -487,7 +496,7 @@ export const DatabaseService = {
     };
   },
 
-  async updateUserStats(updates: Partial<UserStatsInput>): Promise<void> {
+  async updateUserStats(updates: Partial<UserStatsInsert>): Promise<void> { // Changed type to UserStatsInsert
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 

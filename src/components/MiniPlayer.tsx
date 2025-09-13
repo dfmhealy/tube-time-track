@@ -104,7 +104,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
               ...current,
               title: ep.title,
               thumbnailUrl: ep.thumbnail_url || '',
-              creator: ep.podcast?.creator || ep.creator, // Corrected access to creator
+              creator: ep.podcast?.creator || '', // Corrected access to creator
               durationSeconds: ep.duration_seconds,
               lastPositionSeconds: ep.last_position_seconds,
               audioUrl: ep.audio_url, // Ensure audioUrl is updated in current

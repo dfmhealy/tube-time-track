@@ -32,13 +32,13 @@ export default function Settings() {
   const handleSave = async () => {
     const minutes = parseFloat(localDailyGoal);
     if (isNaN(minutes) || minutes <= 0) {
-      toast.error('Please enter a valid number of minutes');
+      toast.error('Please enter a valid number of minutes'); // Corrected toast call
       return;
     }
     const newGoalSeconds = Math.round(minutes * 60); // Convert minutes to seconds
 
     try {
-      await DatabaseService.updateUserStats({ dailyGoalSeconds: newGoalSeconds });
+      await DatabaseService.updateUserStats({ weekly_goal_seconds: newGoalSeconds });
       updateDailyGoalSeconds(newGoalSeconds); // Update Zustand store
       toast.success('Daily goal updated successfully');
     } catch (error) {

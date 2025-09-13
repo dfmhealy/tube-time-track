@@ -135,7 +135,9 @@ export const useYouTubePlayer = ({
           } else {
             ytPlayerInstance.current.pauseVideo();
           }
-          setLocalDuration(ytPlayerInstance.current.getDuration());
+          if (typeof ytPlayerInstance.current.getDuration === 'function') {
+            setLocalDuration(ytPlayerInstance.current.getDuration());
+          }
         }
       } else if (!existingIframe) {
         // Create a new div to hold the player, then create the player
@@ -172,7 +174,9 @@ export const useYouTubePlayer = ({
                     pause();
                   }
                 }
-                setLocalDuration(ytPlayerInstance.current.getDuration());
+                if (typeof ytPlayerInstance.current.getDuration === 'function') {
+                  setLocalDuration(ytPlayerInstance.current.getDuration());
+                }
               }
             },
             onStateChange: (event: any) => {
@@ -210,7 +214,9 @@ export const useYouTubePlayer = ({
           } else {
             ytPlayerInstance.current.pauseVideo();
           }
-          setLocalDuration(ytPlayerInstance.current.getDuration());
+          if (typeof ytPlayerInstance.current.getDuration === 'function') {
+            setLocalDuration(ytPlayerInstance.current.getDuration());
+          }
         }
       }
 

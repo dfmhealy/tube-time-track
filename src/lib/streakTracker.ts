@@ -79,8 +79,8 @@ export class StreakTracker {
         
         if (shouldUpdateStreak) {
           await DatabaseService.updateUserStats({
-            streakDays: newStreakDays,
-            lastWatchedAt: today.toISOString()
+            streak_days: newStreakDays, // Changed to snake_case
+            last_watched_at: today.toISOString() // Changed to snake_case
           });
           // Update Zustand store
           useStatsStore.getState().updateStreakDays(newStreakDays);

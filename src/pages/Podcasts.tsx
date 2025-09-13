@@ -138,8 +138,15 @@ export function Podcasts() {
         if (uniqueNewEpisodes.length > 0) {
           // Import new episodes to database
           const episodesToImport = uniqueNewEpisodes.slice(0, 25).map(ep => ({
-            ...ep,
-            podcast_id: selectedPodcast.id,
+            title: ep.title,
+            description: ep.description || '',
+            audio_url: ep.audio_url,
+            duration_seconds: ep.duration_seconds,
+            episode_number: ep.episode_number,
+            season_number: ep.season_number,
+            publish_date: ep.publish_date,
+            thumbnail_url: ep.thumbnail_url,
+            podcast_id: selectedPodcast.id, // Ensure podcast_id is set for new episodes
             last_position_seconds: 0, // Initialize new field
             is_completed: false // Initialize new field
           }));
@@ -150,16 +157,10 @@ export function Podcasts() {
           const updatedEpisodes = await PodcastDatabaseService.getEpisodesForPodcast(selectedPodcast.id);
           setEpisodes(updatedEpisodes);
           
-          sonnerToast.success({ // Changed to sonnerToast
-            title: "Episodes Updated",
-            description: `Added ${uniqueNewEpisodes.length} new episodes`,
-          });
+          sonnerToast.success(`Episodes Updated: Added ${uniqueNewEpisodes.length} new episodes`); // Changed to sonnerToast
         } else {
           setHasMoreEpisodes(false);
-          sonnerToast.info({ // Changed to sonnerToast
-            title: "No New Episodes",
-            description: "All available episodes are already loaded",
-          });
+          sonnerToast.info("No New Episodes: All available episodes are already loaded"); // Changed to sonnerToast
         }
       }
     } catch (error) {
@@ -182,10 +183,7 @@ export function Podcasts() {
       const updatedSubscriptions = await PodcastDatabaseService.getUserSubscriptions();
       setSubscriptions(updatedSubscriptions);
       
-      sonnerToast.success({ // Changed to sonnerToast
-        title: "Subscribed!",
-        description: `You're now subscribed to ${podcast.title}`,
-      });
+      sonnerToast.success(`Subscribed! You're now subscribed to ${podcast.title}`); // Changed to sonnerToast
     } catch (error) {
       console.error('Failed to subscribe:', error);
       toast({
@@ -204,10 +202,7 @@ export function Podcasts() {
       const updatedSubscriptions = await PodcastDatabaseService.getUserSubscriptions();
       setSubscriptions(updatedSubscriptions);
       
-      sonnerToast.info({ // Changed to sonnerToast
-        title: "Unsubscribed",
-        description: `You've unsubscribed from ${podcast.title}`,
-      });
+      sonnerToast.info(`Unsubscribed: You've unsubscribed from ${podcast.title}`); // Changed to sonnerToast
     } catch (error) {
       console.error('Failed to unsubscribe:', error);
       toast({
@@ -278,6 +273,7 @@ export function Podcasts() {
           season_number: ep.season_number,
           publish_date: ep.publish_date,
           thumbnail_url: ep.thumbnail_url,
+          podcast_id: importedPodcast.id, // Ensure podcast_id is set for new episodes
           last_position_seconds: 0, // Initialize new field
           is_completed: false // Initialize new field
         }))
@@ -329,10 +325,7 @@ export function Podcasts() {
       setPodcasts(updatedPodcasts);
       setSubscriptions(updatedSubscriptions);
       
-      sonnerToast.success({ // Changed to sonnerToast
-        title: "Podcast Added!",
-        description: `${podcast.title} has been added to your library with ${importedEpisodes.length} episodes.`,
-      });
+      sonnerToast.success(`Podcast Added! ${podcast.title} has been added to your library with ${importedEpisodes.length} episodes.`); // Changed to sonnerToast
       
       // Clear search results
       setSearchResults([]);
@@ -494,7 +487,7 @@ export function Podcasts() {
                               ) : (
                                 <Plus className="w-3 h-3 mr-1" />
                               )}
-                              {isSubscribed(podcast.id) ? 'Unsubscribe' : 'Subscribe'}
+                              {isSubscribed(podcast.id) ? 'Unsubscribe' : 'Add to Library'}
                             </Button>
                           </div>
                         </div>
@@ -565,14 +558,26 @@ export function Podcasts() {
                             category: podcast.category || '',
                             total_episodes: episodes.length,
                           },
-                          episodes
+                          episodes.map(ep => ({
+                            title: ep.title,
+                            description: ep.description || '',
+                            audio_url: ep.audio_url,
+                            duration_seconds: ep.duration_seconds,
+                            episode_number: ep.episode_number,
+                            season_number: ep.season_number,
+                            publish_date: ep.publish_date,
+                            thumbnail_url: ep.thumbnail_url,
+                            podcast_id: '', // This will be set by importPodcastWithEpisodes
+                            last_position_seconds: 0,
+                            is_completed: false
+                          }))
                         );
                         // Refresh subscriptions list
                         const updatedSubscriptions = await PodcastDatabaseService.getUserSubscriptions();
                         setSubscriptions(updatedSubscriptions);
                         // Clear input
                         setManualRssUrl('');
-                        sonnerToast.success({ title: 'Podcast Added', description: created.podcast.title }); // Changed to sonnerToast
+                        sonnerToast.success(`Podcast Added: ${created.podcast.title}`); // Changed to sonnerToast
                       } catch (error) {
                         console.error('Manual RSS import error:', error);
                         toast({

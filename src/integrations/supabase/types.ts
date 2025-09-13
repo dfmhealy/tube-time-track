@@ -290,24 +290,27 @@ export type Database = {
         }
         Relationships: []
       }
-      video_channel_subscriptions: { // Added this table
+      video_channel_subscriptions: {
         Row: {
           id: string
           user_id: string
           channel_title: string
           created_at: string
+          updated_at: string | null // Added updated_at
         }
         Insert: {
           id?: string
           user_id: string
           channel_title: string
           created_at?: string
+          updated_at?: string | null // Added updated_at
         }
         Update: {
           id?: string
           user_id?: string
           channel_title?: string
           created_at?: string
+          updated_at?: string | null // Added updated_at
         }
         Relationships: []
       }
@@ -370,6 +373,7 @@ export type Database = {
           started_at: string | null
           user_id: string
           video_id: string
+          updated_at: string | null // Added updated_at
         }
         Insert: {
           avg_playback_rate?: number | null
@@ -381,6 +385,7 @@ export type Database = {
           started_at?: string | null
           user_id: string
           video_id: string
+          updated_at?: string | null // Added updated_at
         }
         Update: {
           avg_playback_rate?: number | null
@@ -392,6 +397,7 @@ export type Database = {
           started_at?: string | null
           user_id?: string
           video_id?: string
+          updated_at?: string | null // Added updated_at
         }
         Relationships: [
           {

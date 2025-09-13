@@ -601,7 +601,7 @@ export const PodcastDatabaseService = {
       .from('podcast_episodes')
       .select('last_position_seconds')
       .eq('id', episodeId)
-      .single();
+      .maybeSingle();
     
     if (episodeError) {
       console.error('Error fetching episode last position:', episodeError);
@@ -635,7 +635,7 @@ export const PodcastDatabaseService = {
       .from('podcast_episodes')
       .select('is_completed')
       .eq('id', episodeId)
-      .single();
+      .maybeSingle(); // Use maybeSingle to handle no results gracefully
       
     if (fetchError && fetchError.code !== 'PGRST116') throw fetchError; // Handle actual errors
     if (currentEpisode?.is_completed === isCompleted) return; // Already in desired state
@@ -653,7 +653,7 @@ export const PodcastDatabaseService = {
       .from('podcast_episodes')
       .select('is_completed')
       .eq('id', episodeId)
-      .single();
+      .maybeSingle(); // Use maybeSingle to handle no results gracefully
     
     if (error) return false;
     return data?.is_completed || false;
