@@ -331,7 +331,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
 
   if (!showMiniPlayer) {
     // If a video is playing in PlayerView, ensure the iframe is moved there
-    if (isVideo && current && isPlayerViewOpen && youtubeIframeRef.current.firstChild) {
+    if (isVideo && current && isPlayerViewOpen && youtubeIframeRef.current && youtubeIframeRef.current.firstChild) {
       const iframe = youtubeIframeRef.current.firstChild as HTMLIFrameElement;
       if (iframe.parentElement === youtubeIframeRef.current) {
         // Remove from mini-player's container, PlayerView will pick it up
