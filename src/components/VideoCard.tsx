@@ -22,8 +22,14 @@ export function VideoCard({ video, onPlay, onDelete, className }: VideoCardProps
     ? Math.round((video.lastPositionSeconds / video.durationSeconds) * 100)
     : 0;
 
-  const hasProgress = video.lastPositionSeconds && video.lastPositionSeconds > 30;
-  const isCompleted = video.isCompleted || progressPercent >= 90;
+  // Fix progress calculation - use position or watch time, whichever is greater
+  const actualProgress = Math.max(video.lastPositionSeconds || 0, video.watchSeconds || 0);
+  const actualProgressPercent = video.durationSeconds > 0 
+    ? Math.round((actualProgress / video.durationSeconds) * 100)
+    : 0;
+    
+  const hasProgress = actualProgress > 30;
+  const isCompleted = video.isCompleted || actualProgressPercent >= 90;
 
   return (
     <Card className={cn(

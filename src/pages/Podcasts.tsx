@@ -787,7 +787,19 @@ export function Podcasts() {
                                 size="sm"
                                 onClick={() => {
                                   const player = usePlayerStore.getState();
-                                  player.enqueueNext({ type: 'podcast', id: episode.id });
+                                  // Check if already in queue
+                                  if (!player.isInQueue(episode.id)) {
+                                    player.enqueueNext({ type: 'podcast', id: episode.id });
+                                    toast({
+                                      title: "Added to queue",
+                                      description: "Episode will play next"
+                                    });
+                                  } else {
+                                    toast({
+                                      title: "Already in queue", 
+                                      description: "This episode is already queued"
+                                    });
+                                  }
                                 }}
                               >
                                 Play Next
@@ -797,7 +809,19 @@ export function Podcasts() {
                                 size="sm"
                                 onClick={() => {
                                   const player = usePlayerStore.getState();
-                                  player.enqueueLast({ type: 'podcast', id: episode.id });
+                                  // Check if already in queue
+                                  if (!player.isInQueue(episode.id)) {
+                                    player.enqueueLast({ type: 'podcast', id: episode.id });
+                                    toast({
+                                      title: "Added to queue",
+                                      description: "Episode added to end of queue"
+                                    });
+                                  } else {
+                                    toast({
+                                      title: "Already in queue",
+                                      description: "This episode is already queued"
+                                    });
+                                  }
                                 }}
                               >
                                 Play Last

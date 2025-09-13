@@ -78,14 +78,15 @@ export function Stats() {
   
   // Calculate today's watch time
   const today = new Date().toISOString().split('T')[0];
-  const todaySessions = weeklyData?.filter(session => 
-    session.date && typeof session.date === 'string' && session.date.startsWith(today)
-  ) || [];
-  const todaySeconds = todaySessions.reduce((total, session) => total + (session.seconds || 0), 0);
+  
+  // Find today's data in weekly data
+  const todayData = weeklyData?.find(day => day.date === today);
+  const todaySeconds = todayData?.seconds || 0;
+  
   const dailyProgress = dailyGoalSeconds > 0 ? (todaySeconds / dailyGoalSeconds) * 100 : 0;
   
   // Calculate weekly total for the weekly stats card
-  const currentWeekSeconds = weeklyData?.reduce((total, session) => total + (session.seconds || 0), 0) || 0;
+  const currentWeekSeconds = weeklyData?.reduce((total, day) => total + (day.seconds || 0), 0) || 0;
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-8">
