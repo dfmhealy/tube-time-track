@@ -42,30 +42,29 @@ export const usePodcastPlayer = ({
   const [podcastSession, setPodcastSession] = useState<PodcastSession | null>(null);
   const { toast } = useToast();
 
-  // --- Podcast (Audio) Playback Logic ---
+  // Effect 1: Setup audio source and initial session
   useEffect(() => {
     if (!currentPodcast || !audioRef.current) return;
 
     const ep = currentPodcast;
     const audio = audioRef.current;
 
-    const tryPlayAudioWithProxies = async (url: string, initialPosition: number) => {
+    const tryLoadAndAutoplayAudio = async (url: string, initialPosition: number) => {
       audio.currentTime = initialPosition;
-      audio.playbackRate = playbackRate;
-      audio.volume = muted ? 0 : volume;
+      audio.playbackRate = playbackRate; // Set initial rate
+      audio.volume = muted ? 0 : volume; // Set initial volume/mute
 
       const AUDIO_PROXY_COUNT = 3;
-      const urlsToTry = [url]; // Start with direct URL
+      const urlsToTry = [url];
       for (let i = 0; i < AUDIO_PROXY_COUNT; i++) {
         urlsToTry.push(getProxiedAudioUrl(url, i));
       }
 
       for (const currentUrl of urlsToTry) {
         audio.src = currentUrl;
-        audio.load(); // Load the new source
+        audio.load();
 
         try {
-          // Wait for the audio to be ready to play
           await new Promise<void>((resolve, reject) => {
             const onCanPlay = () => {
               audio.removeEventListener('canplay', onCanPlay);
@@ -80,26 +79,39 @@ export const usePodcastPlayer = ({
 
             audio.addEventListener('canplay', onCanPlay);
             audio.addEventListener('error', onError);
-
-            // If already ready, resolve immediately
-            if (audio.readyState >= 3) { // HAVE_FUTURE_DATA or HAVE_ENOUGH_DATA
-              onCanPlay();
-            }
+            if (audio.readyState >= 3) onCanPlay();
           });
 
-          // Attempt to play
-          await audio.play();
-          console.log(`Podcast playback successful with URL: ${currentUrl}`);
-          return true; // Successfully played
+          // Only attempt autoplay if `isPlaying` is true from the store
+          // This is the *initial* autoplay attempt when a new item loads
+          if (usePlayerStore.getState().isPlaying) { // Check current store state
+            await audio.play();
+            console.log(`Podcast playback successful with URL: ${currentUrl}`);
+          }
+          return true;
         } catch (e: any) {
-          console.warn(`Podcast playback failed with URL: ${currentUrl}`, e);
-          // Continue to next URL if this one failed
+          console.warn(`Podcast load/playback failed with URL: ${currentUrl}`, e);
+          if (e.name === 'NotAllowedError' || e.name === 'AbortError') { // Autoplay blocked
+            toast({
+              title: "Autoplay Blocked",
+              description: "Autoplay blocked. Tap play to listen.",
+              variant: "info"
+            });
+            pause(); // Update store state to paused
+          } else {
+            toast({
+              title: "Error",
+              description: `Failed to load podcast: ${e.message}`,
+              variant: "destructive"
+            });
+            clearCurrent(); // Clear if a critical error
+          }
         }
       }
-      throw new Error('All podcast playback attempts failed.'); // If all URLs failed
+      throw new Error('All podcast playback attempts failed.');
     };
 
-    const setupAudio = async () => {
+    const setupAndPlay = async () => {
       try {
         const s = await PodcastDatabaseService.startListenSession(ep.id);
         setPodcastSession(s);
@@ -114,22 +126,16 @@ export const usePodcastPlayer = ({
         return;
       }
 
-      if (isPlaying) {
-        try {
-          await tryPlayAudioWithProxies(ep.audio_url, localPosition);
-        } catch (e: any) {
-          console.error("Podcast autoplay failed:", e);
-          toast({
-            title: "Autoplay Blocked",
-            description: "Autoplay blocked or media not supported. Tap play to listen.",
-            variant: "info"
-          });
-          pause(); // Set global state to paused if autoplay fails
-        }
+      // Attempt to load and autoplay
+      try {
+        await tryLoadAndAutoplayAudio(ep.audio_url, localPosition);
+      } catch (e) {
+        console.error("Initial podcast load/autoplay failed:", e);
+        // Error already handled by tryLoadAndAutoplayAudio
       }
     };
 
-    setupAudio();
+    setupAndPlay();
 
     const handleAudioEnded = async () => {
       if (podcastSession) {
@@ -150,27 +156,29 @@ export const usePodcastPlayer = ({
       audio.removeEventListener('loadedmetadata', () => setLocalDuration(audio.duration));
       setPodcastSession(null);
     };
-  }, [currentPodcast?.id, localPosition, isPlaying, volume, muted, playbackRate, next, pause, clearCurrent, setLocalDuration, toast]);
+  }, [currentPodcast?.id, localPosition, playbackRate, volume, muted, next, pause, clearCurrent, setLocalDuration, toast]); // Dependencies for initial setup
 
-  // Sync podcast audio playback
+  // Effect 2: Sync global isPlaying state to audio element
   useEffect(() => {
-    if (currentPodcast && audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.play().catch(e => console.error("Podcast playback failed:", e));
-      } else {
-        audioRef.current.pause();
-      }
+    if (!currentPodcast || !audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.play().catch(e => {
+        console.error("Podcast playback failed on resume:", e);
+        // No toast here, as this is a user-initiated play
+      });
+    } else {
+      audioRef.current.pause();
     }
-  }, [isPlaying, currentPodcast]);
+  }, [isPlaying, currentPodcast]); // Only re-run when isPlaying or currentPodcast changes
 
-  // Sync volume/mute to audio element
+  // Effect 3: Sync volume/mute to audio element
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = muted ? 0 : volume;
     }
   }, [volume, muted]);
 
-  // Sync playback rate to audio element
+  // Effect 4: Sync playback rate to audio element
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.playbackRate = playbackRate;

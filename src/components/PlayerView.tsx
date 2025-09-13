@@ -42,40 +42,13 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
 
   const video = current?.type === 'video' ? current : null;
 
-  // Effect to manage the YouTube iframe DOM element
+  // Effect 1: Setup YouTube player
   useEffect(() => {
     if (!video || !youtubeIframeRef.current) return;
 
     const playerContainer = youtubeIframeRef.current;
     const existingIframe = playerContainer.querySelector('iframe');
 
-    // If an iframe already exists, it means the MiniPlayer is passing it to us.
-    // We just need to ensure it's visible and correctly sized.
-    if (existingIframe) {
-      // Ensure the iframe is a direct child of the container
-      if (existingIframe.parentElement !== playerContainer) {
-        playerContainer.appendChild(existingIframe);
-      }
-      // Update dimensions for full view
-      existingIframe.style.width = '100%';
-      existingIframe.style.height = '100%';
-      ytPlayerInstance.current = (window as any).YT.get(existingIframe.id);
-      
-      // If player instance is already available, set initial state
-      if (ytPlayerInstance.current) {
-        ytPlayerInstance.current.seekTo(localPosition, true);
-        if (isPlaying) {
-          ytPlayerInstance.current.playVideo();
-        } else {
-          ytPlayerInstance.current.pauseVideo();
-        }
-        ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
-        ytPlayerInstance.current.setPlaybackRate(playbackRate);
-      }
-      return;
-    }
-
-    // If no iframe exists, create a new YouTube player
     const createPlayer = () => {
       if (!(window as any).YT || !(window as any).YT.Player) {
         console.error("YouTube IFrame API not loaded.");
@@ -99,10 +72,14 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
             ytPlayerInstance.current.seekTo(localPosition, true);
             ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
             ytPlayerInstance.current.setPlaybackRate(playbackRate);
-            if (isPlaying) {
-              ytPlayerInstance.current.playVideo();
-            } else {
-              ytPlayerInstance.current.pauseVideo();
+            
+            // Only attempt autoplay if `isPlaying` is true from the store
+            if (usePlayerStore.getState().isPlaying) { // Check current store state
+              ytPlayerInstance.current.playVideo().catch((e: any) => {
+                console.error("YT Autoplay failed in PlayerView:", e);
+                toast.error("Autoplay blocked. Tap play to watch.");
+                pause(); // Update store state to paused
+              });
             }
             setLocalDuration(ytPlayerInstance.current.getDuration());
           },
@@ -125,31 +102,62 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
       });
     };
 
-    // Load YouTube API if not already loaded
-    if (!(window as any).YT || !(window as any).YT.Player) {
-      const script = document.createElement('script');
-      script.src = 'https://www.youtube.com/iframe_api';
-      (window as any).onYouTubeIframeAPIReady = createPlayer;
-      document.head.appendChild(script);
+    if (existingIframe) {
+      if (existingIframe.parentElement !== playerContainer) {
+        playerContainer.appendChild(existingIframe);
+      }
+      existingIframe.style.width = '100%';
+      existingIframe.style.height = '100%';
+      ytPlayerInstance.current = (window as any).YT.get(existingIframe.id);
+      
+      if (ytPlayerInstance.current) {
+        ytPlayerInstance.current.seekTo(localPosition, true);
+        ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
+        ytPlayerInstance.current.setPlaybackRate(playbackRate);
+        if (usePlayerStore.getState().isPlaying) { // Check current store state
+          ytPlayerInstance.current.playVideo().catch((e: any) => {
+            console.error("YT Autoplay failed in PlayerView (existing iframe):", e);
+            toast.error("Autoplay blocked. Tap play to watch.");
+            pause();
+          });
+        } else {
+          ytPlayerInstance.current.pauseVideo();
+        }
+      }
     } else {
-      createPlayer();
+      if (!(window as any).YT || !(window as any).YT.Player) {
+        const script = document.createElement('script');
+        script.src = 'https://www.youtube.com/iframe_api';
+        (window as any).onYouTubeIframeAPIReady = createPlayer;
+        document.head.appendChild(script);
+      } else {
+        createPlayer();
+      }
     }
 
     return () => {
       if (ytPlayerInstance.current && typeof ytPlayerInstance.current.destroy === 'function') {
-        // When PlayerView unmounts, we don't destroy the player if it's minimizing
-        // Instead, we let MiniPlayer take over the iframe.
-        // If it's a full stop/clear, then destroy.
-        if (!playerStore.isMinimized) { // Only destroy if not minimizing
+        if (!playerStore.isMinimized) {
           try { ytPlayerInstance.current.destroy(); } catch (e) { console.warn("Error destroying YT player:", e); }
         }
       }
       ytPlayerInstance.current = null;
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
     };
-  }, [video?.id, youtubeIframeRef]); // Only re-run if video ID or iframe ref changes
+  }, [video?.id, youtubeIframeRef, localPosition, playbackRate, volume, muted, pause, clearCurrent, setLocalDuration, toast]); // Dependencies for initial setup
 
-  // Sync local position/duration with global state and update DB
+  // Effect 2: Sync global playback state to YouTube player
+  useEffect(() => {
+    if (!video || !ytPlayerInstance.current) return;
+    const YT = (window as any).YT;
+    if (isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PLAYING) {
+      try { ytPlayerInstance.current.playVideo(); } catch (e) { console.error("YT play failed:", e); }
+    } else if (!isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PAUSED) {
+      try { ytPlayerInstance.current.pauseVideo(); } catch (e) { console.error("YT pause failed:", e); }
+    }
+  }, [isPlaying, video, ytPlayerInstance.current]); // Only re-run when isPlaying or video changes
+
+  // Effect 3: Sync local position/duration with global state and update DB
   useEffect(() => {
     if (!video || !ytPlayerInstance.current) return;
 
@@ -177,26 +185,15 @@ export const PlayerView: React.FC<PlayerViewProps> = ({ youtubeIframeRef }) => {
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
     };
-  }, [video?.id, isPlaying, ytPlayerInstance.current]);
+  }, [video?.id, isPlaying, ytPlayerInstance.current]); // Keep isPlaying here as it affects when dailyTimeTracker.addTime is called
 
-  // Sync global playback state to YouTube player
-  useEffect(() => {
-    if (!ytPlayerInstance.current) return;
-    const YT = (window as any).YT;
-    if (isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PLAYING) {
-      try { ytPlayerInstance.current.playVideo(); } catch (e) { console.error("YT play failed:", e); }
-    } else if (!isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PAUSED) {
-      try { ytPlayerInstance.current.pauseVideo(); } catch (e) { console.error("YT pause failed:", e); }
-    }
-  }, [isPlaying, ytPlayerInstance.current]);
-
-  // Sync global volume/mute to YouTube player
+  // Effect 4: Sync global volume/mute to YouTube player
   useEffect(() => {
     if (!ytPlayerInstance.current) return;
     ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
   }, [volume, muted, ytPlayerInstance.current]);
 
-  // Sync global playback rate to YouTube player
+  // Effect 5: Sync global playback rate to YouTube player
   useEffect(() => {
     if (!ytPlayerInstance.current) return;
     ytPlayerInstance.current.setPlaybackRate(playbackRate);

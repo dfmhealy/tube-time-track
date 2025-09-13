@@ -42,7 +42,7 @@ export const useYouTubePlayer = ({
   const videoSessionIdRef = useRef<string | null>(null);
   const { toast } = useToast();
 
-  // Effect to manage the YouTube iframe DOM element and player initialization
+  // Effect 1: Setup YouTube player and initial session
   useEffect(() => {
     if (!currentVideo || !youtubeIframeRef.current) return;
 
@@ -90,7 +90,9 @@ export const useYouTubePlayer = ({
               ytPlayerInstance.current.seekTo(localPosition, true);
               ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
               ytPlayerInstance.current.setPlaybackRate(playbackRate);
-              if (isPlaying) {
+              
+              // Only attempt autoplay if `isPlaying` is true from the store
+              if (usePlayerStore.getState().isPlaying) { // Check current store state
                 ytPlayerInstance.current.playVideo().catch((e: any) => {
                   console.error("YT Autoplay failed:", e);
                   toast({
@@ -98,7 +100,7 @@ export const useYouTubePlayer = ({
                     description: "Autoplay blocked. Tap play to watch.",
                     variant: "info"
                   });
-                  pause();
+                  pause(); // Update store state to paused
                 });
               }
               setLocalDuration(ytPlayerInstance.current.getDuration());
@@ -149,28 +151,27 @@ export const useYouTubePlayer = ({
       // The iframe element is moved, not destroyed.
       // Only destroy if clearCurrent is called and no longer needed.
     };
-  }, [currentVideo?.id, localPosition, youtubeIframeRef, isPlaying, volume, muted, playbackRate, next, pause, resume, clearCurrent, setLocalDuration, toast]);
+  }, [currentVideo?.id, localPosition, youtubeIframeRef, playbackRate, volume, muted, next, pause, resume, clearCurrent, setLocalDuration, toast]); // Dependencies for initial setup
 
-  // Sync YouTube video playback
+  // Effect 2: Sync global isPlaying state to YouTube player
   useEffect(() => {
-    if (currentVideo && ytPlayerInstance.current) {
-      const YT = (window as any).YT;
-      if (isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PLAYING) {
-        try { ytPlayerInstance.current.playVideo(); } catch (e) { console.error("YT play failed:", e); }
-      } else if (!isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PAUSED) {
-        try { ytPlayerInstance.current.pauseVideo(); } catch (e) { console.error("YT pause failed:", e); }
-      }
+    if (!currentVideo || !ytPlayerInstance.current) return;
+    const YT = (window as any).YT;
+    if (isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PLAYING) {
+      try { ytPlayerInstance.current.playVideo(); } catch (e) { console.error("YT play failed:", e); }
+    } else if (!isPlaying && ytPlayerInstance.current.getPlayerState() !== YT.PlayerState.PAUSED) {
+      try { ytPlayerInstance.current.pauseVideo(); } catch (e) { console.error("YT pause failed:", e); }
     }
-  }, [isPlaying, currentVideo]);
+  }, [isPlaying, currentVideo]); // Only re-run when isPlaying or currentVideo changes
 
-  // Sync volume/mute to YouTube player
+  // Effect 3: Sync volume/mute to YouTube player
   useEffect(() => {
     if (ytPlayerInstance.current) {
       ytPlayerInstance.current.setVolume(muted ? 0 : volume * 100);
     }
   }, [volume, muted]);
 
-  // Sync playback rate to YouTube player
+  // Effect 4: Sync playback rate to YouTube player
   useEffect(() => {
     if (ytPlayerInstance.current) {
       ytPlayerInstance.current.setPlaybackRate(playbackRate);
