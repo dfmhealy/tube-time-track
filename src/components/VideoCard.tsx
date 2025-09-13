@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Play, Clock, Trash2, RotateCcw, CheckCircle, ListPlus } from 'lucide-react'; // Added ListPlus icon
 import { formatDuration, cn } from '@/lib/utils';
 import type { Video } from '@/lib/database';
-import { usePlayerStore } from '@/store/playerStore'; // Import usePlayerStore
+import { usePlayerStore } from '@/store/playerStore'; // Corrected import
 import { toast } from 'sonner'; // Import toast for notifications
 
 interface VideoCardProps {

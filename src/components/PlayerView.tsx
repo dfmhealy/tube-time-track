@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Card } from '@/components/ui/card';
 import { Play, Pause, Minimize2, Maximize2, Volume2, VolumeX, Settings, X, SkipForward, SkipBack } from 'lucide-react';
-import { usePlayerStore } from '@/store/appStore'; // Updated import
+import { usePlayerStore } from '@/store/playerStore'; // Corrected import
 import { DatabaseService } from '@/lib/database';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 import { formatDuration } from '@/lib/utils';

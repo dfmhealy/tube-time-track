@@ -8,7 +8,7 @@ import { MiniPlayer } from "@/components/MiniPlayer";
 import { PlayerView } from "@/components/PlayerView"; // Import PlayerView
 import { QueueDrawer } from "@/components/QueueDrawer"; // Import QueueDrawer
 import { useAuth } from "@/contexts/AuthContext";
-import { usePlayerStore } from "@/store/playerStore"; // Import player store
+import { usePlayerStore } from "@/store/playerStore"; // Corrected import
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import PublicHome from "./pages/PublicHome";

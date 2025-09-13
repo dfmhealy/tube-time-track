@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { DatabaseService, type Video } from '@/lib/database';
 import { useToast } from '@/hooks/use-toast';
-import { usePlayerStore } from '@/store/playerStore';
+import { usePlayerStore } from '@/store/playerStore'; // Corrected import
 import { Play, ListPlus } from 'lucide-react'; // Import ListPlus icon
 import { formatDuration } from '@/lib/utils'; // Import formatDuration
 import { toast as sonnerToast } from 'sonner'; // Import sonner toast

@@ -19,7 +19,7 @@ import {
 import { cn, formatDuration } from '@/lib/utils';
 import { PodcastDatabaseService, type Podcast, type PodcastEpisode, type PodcastSubscription } from '@/lib/podcastDatabase';
 import { podcastApiService, type PodcastSearchResult } from '@/lib/podcastApi';
-import { usePlayerStore } from '@/store/playerStore';
+import { usePlayerStore } from '@/store/playerStore'; // Corrected import
 import { useToast } from '@/hooks/use-toast';
 
 export function Podcasts() {
@@ -371,6 +371,7 @@ export function Podcasts() {
       creator: episode.podcast?.creator || selectedPodcast?.creator || '',
       durationSeconds: episode.duration_seconds,
       lastPositionSeconds: episode.last_position_seconds,
+      audioUrl: episode.audio_url, // Pass audioUrl for podcast
     }, episode.last_position_seconds || 0);
   };
 
@@ -383,6 +384,7 @@ export function Podcasts() {
       creator: episode.podcast?.creator || selectedPodcast?.creator || '',
       durationSeconds: episode.duration_seconds,
       lastPositionSeconds: episode.last_position_seconds,
+      audioUrl: episode.audio_url, // Pass audioUrl for podcast
     });
     toast.success(`"${episode.title}" added to play next.`);
   };
@@ -396,6 +398,7 @@ export function Podcasts() {
       creator: episode.podcast?.creator || selectedPodcast?.creator || '',
       durationSeconds: episode.duration_seconds,
       lastPositionSeconds: episode.last_position_seconds,
+      audioUrl: episode.audio_url, // Pass audioUrl for podcast
     });
     toast.success(`"${episode.title}" added to end of queue.`);
   };

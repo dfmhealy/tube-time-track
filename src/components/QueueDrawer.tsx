@@ -1,5 +1,5 @@
 import React from 'react';
-import { usePlayerStore } from '@/store/playerStore';
+import { usePlayerStore } from '@/store/playerStore'; // Corrected import
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';

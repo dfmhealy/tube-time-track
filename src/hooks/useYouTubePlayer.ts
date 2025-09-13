@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { usePlayerStore } from '@/store/playerStore';
+import { usePlayerStore } from '@/store/playerStore'; // Corrected import
 import { DatabaseService } from '@/lib/database';
+import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 import { useToast } from '@/hooks/use-toast';
 
 interface UseYouTubePlayerProps {
@@ -40,7 +41,55 @@ export const useYouTubePlayer = ({
 }: UseYouTubePlayerProps) => {
   const ytPlayerInstance = useRef<any>(null); // Reference to the actual YouTube player object
   const videoSessionIdRef = useRef<string | null>(null);
+  const progressIntervalRef = useRef<number | null>(null); // Local progress interval
   const { toast } = useToast();
+
+  // --- Media Session API ---
+  useEffect(() => {
+    if (!currentVideo || !('mediaSession' in navigator)) return;
+
+    const playerStore = usePlayerStore.getState(); // Get current state for metadata
+    const currentItem = playerStore.current;
+
+    if (!currentItem || currentItem.type !== 'video') return;
+
+    const mediaTitle = currentItem.title;
+    const mediaArtist = currentItem.channelTitle;
+    const mediaArtwork = [{ src: currentItem.thumbnailUrl, sizes: '96x96', type: 'image/jpeg' }];
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: mediaTitle,
+      artist: mediaArtist,
+      album: 'YouTube Video',
+      artwork: mediaArtwork,
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => resume());
+    navigator.mediaSession.setActionHandler('pause', () => pause());
+    navigator.mediaSession.setActionHandler('nexttrack', () => next());
+    navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+      const seekTime = playerStore.positionSeconds - (details.seekOffset || 10);
+      playerStore.setPosition(Math.max(0, seekTime));
+      if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') ytPlayerInstance.current.seekTo(Math.max(0, seekTime), true);
+    });
+    navigator.mediaSession.setActionHandler('seekforward', (details) => {
+      const seekTime = playerStore.positionSeconds + (details.seekOffset || 10);
+      playerStore.setPosition(Math.min(currentVideo.durationSeconds, seekTime));
+      if (ytPlayerInstance.current && typeof ytPlayerInstance.current.seekTo === 'function') ytPlayerInstance.current.seekTo(Math.min(currentVideo.durationSeconds, seekTime), true);
+    });
+    navigator.mediaSession.setActionHandler('stop', () => clearCurrent());
+
+    return () => {
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('seekbackward', null);
+        navigator.mediaSession.setActionHandler('seekforward', null);
+        navigator.mediaSession.setActionHandler('stop', null);
+      }
+    };
+  }, [currentVideo, isPlaying, resume, pause, next, clearCurrent]);
 
   // Effect 1: Setup YouTube player and initial session
   useEffect(() => {
@@ -154,6 +203,7 @@ export const useYouTubePlayer = ({
       // Do NOT destroy the player here if it's just minimizing/expanding
       // The iframe element is moved, not destroyed.
       // Only destroy if clearCurrent is called and no longer needed.
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
     };
   }, [currentVideo?.id, localPosition, youtubeIframeRef, playbackRate, volume, muted, next, pause, resume, clearCurrent, setLocalDuration, toast]); // Dependencies for initial setup
 
@@ -189,6 +239,90 @@ export const useYouTubePlayer = ({
       ytPlayerInstance.current.setPlaybackRate(playbackRate);
     }
   }, [playbackRate]);
+
+  // --- Progress Tracking and Persistence (1-second interval) ---
+  useEffect(() => {
+    if (!currentVideo || !ytPlayerInstance.current || typeof ytPlayerInstance.current.getCurrentTime !== 'function' || typeof ytPlayerInstance.current.getDuration !== 'function' || typeof ytPlayerInstance.current.getPlayerState !== 'function') {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+      return;
+    }
+
+    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+
+    progressIntervalRef.current = window.setInterval(async () => {
+      const currentYTPlayer = ytPlayerInstance.current;
+      if (!currentYTPlayer || typeof currentYTPlayer.getCurrentTime !== 'function' || currentYTPlayer.getPlayerState() !== (window as any).YT.PlayerState.PLAYING) return;
+
+      const currentPos = Math.floor(currentYTPlayer.getCurrentTime());
+      const currentDur = Math.floor(currentYTPlayer.getDuration());
+      
+      setLocalPosition(currentPos);
+      usePlayerStore.getState().setPosition(currentPos); // Update global position
+      setLocalDuration(currentDur);
+
+      await dailyTimeTracker.addTime(1); // Increment daily watch time
+      try {
+        if (videoSessionIdRef.current) {
+          await DatabaseService.updateWatchSession(videoSessionIdRef.current, { secondsWatched: currentPos });
+          await DatabaseService.updateVideoProgress(currentVideo.id, currentPos);
+        }
+      } catch (e) {
+        console.error('Error updating video progress:', e);
+      }
+
+      // Mark as completed when near the end (90% watched or 1 minute remaining)
+      const completionThreshold = Math.min(currentDur * 0.9, currentDur - 60);
+      if (currentDur >= 120 && currentPos >= completionThreshold) {
+        try {
+          await DatabaseService.markVideoAsCompleted(currentVideo.id);
+        } catch (e) {
+          console.error('Failed to mark video as completed:', e);
+        }
+      }
+    }, 1000) as unknown as number; // Update every 1 second
+
+    return () => {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    };
+  }, [currentVideo?.id, isPlaying, videoSessionIdRef.current, setLocalPosition, setLocalDuration]);
+
+  // --- Persist Progress on Unload/Visibility Change ---
+  useEffect(() => {
+    const persistProgress = async () => {
+      if (!currentVideo || !ytPlayerInstance.current || typeof ytPlayerInstance.current.getCurrentTime !== 'function') return;
+      const currentPos = Math.floor(ytPlayerInstance.current.getCurrentTime());
+
+      if (currentPos > 0) {
+        try {
+          if (videoSessionIdRef.current) {
+            await DatabaseService.endWatchSession(videoSessionIdRef.current, currentPos);
+          }
+          await DatabaseService.updateVideoProgress(currentVideo.id, currentPos);
+        } catch (e) {
+          console.error('Error persisting video progress on unload:', e);
+        }
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        void persistProgress();
+      }
+    };
+    const onBeforeUnload = () => {
+      void persistProgress();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('beforeunload', onBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [currentVideo?.id, videoSessionIdRef.current, ytPlayerInstance.current]);
 
   const handleVideoEnded = async () => {
     if (!currentVideo) return;

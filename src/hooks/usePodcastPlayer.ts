@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { usePlayerStore } from '@/store/playerStore';
+import { usePlayerStore } from '@/store/playerStore'; // Corrected import
 import { PodcastDatabaseService, type PodcastSession } from '@/lib/podcastDatabase';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
 import { getProxiedAudioUrl } from '@/lib/utils';
@@ -8,9 +8,10 @@ import { useToast } from '@/hooks/use-toast';
 interface UsePodcastPlayerProps {
   currentPodcast: {
     id: string;
-    audio_url: string;
+    audioUrl: string; // Changed to audioUrl
     durationSeconds: number;
   } | null;
+  audioRef: React.RefObject<HTMLAudioElement>; // Pass audioRef
   isPlaying: boolean;
   volume: number;
   muted: boolean;
@@ -26,6 +27,7 @@ interface UsePodcastPlayerProps {
 
 export const usePodcastPlayer = ({
   currentPodcast,
+  audioRef, // Receive audioRef
   isPlaying,
   volume,
   muted,
@@ -38,9 +40,57 @@ export const usePodcastPlayer = ({
   next,
   clearCurrent,
 }: UsePodcastPlayerProps) => {
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [podcastSession, setPodcastSession] = useState<PodcastSession | null>(null);
+  const progressIntervalRef = useRef<number | null>(null); // Local progress interval
   const { toast } = useToast();
+
+  // --- Media Session API ---
+  useEffect(() => {
+    if (!currentPodcast || !('mediaSession' in navigator)) return;
+
+    const playerStore = usePlayerStore.getState(); // Get current state for metadata
+    const currentItem = playerStore.current;
+
+    if (!currentItem || currentItem.type !== 'podcast') return;
+
+    const mediaTitle = currentItem.title;
+    const mediaArtist = currentItem.creator;
+    const mediaArtwork = [{ src: currentItem.thumbnailUrl, sizes: '96x96', type: 'image/jpeg' }];
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: mediaTitle,
+      artist: mediaArtist,
+      album: currentItem.creator, // Using creator as album for podcasts
+      artwork: mediaArtwork,
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => resume());
+    navigator.mediaSession.setActionHandler('pause', () => pause());
+    navigator.mediaSession.setActionHandler('nexttrack', () => next());
+    navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+      const seekTime = playerStore.positionSeconds - (details.seekOffset || 10);
+      playerStore.setPosition(Math.max(0, seekTime));
+      if (audioRef.current) audioRef.current.currentTime = Math.max(0, seekTime);
+    });
+    navigator.mediaSession.setActionHandler('seekforward', (details) => {
+      const seekTime = playerStore.positionSeconds + (details.seekOffset || 10);
+      playerStore.setPosition(Math.min(currentPodcast.durationSeconds, seekTime));
+      if (audioRef.current) audioRef.current.currentTime = Math.min(currentPodcast.durationSeconds, seekTime);
+    });
+    navigator.mediaSession.setActionHandler('stop', () => clearCurrent());
+
+    return () => {
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('seekbackward', null);
+        navigator.mediaSession.setActionHandler('seekforward', null);
+        navigator.mediaSession.setActionHandler('stop', null);
+      }
+    };
+  }, [currentPodcast, isPlaying, resume, pause, next, clearCurrent, audioRef]);
+
 
   // Effect 1: Setup audio source and initial session
   useEffect(() => {
@@ -128,7 +178,7 @@ export const usePodcastPlayer = ({
 
       // Attempt to load and autoplay
       try {
-        await tryLoadAndAutoplayAudio(ep.audio_url, localPosition);
+        await tryLoadAndAutoplayAudio(ep.audioUrl, localPosition); // Use ep.audioUrl
       } catch (e) {
         console.error("Initial podcast load/autoplay failed:", e);
         // Error already handled by tryLoadAndAutoplayAudio
@@ -155,8 +205,9 @@ export const usePodcastPlayer = ({
       audio.removeEventListener('ended', handleAudioEnded);
       audio.removeEventListener('loadedmetadata', () => setLocalDuration(audio.duration));
       setPodcastSession(null);
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
     };
-  }, [currentPodcast?.id, localPosition, playbackRate, volume, muted, next, pause, clearCurrent, setLocalDuration, toast]); // Dependencies for initial setup
+  }, [currentPodcast?.id, currentPodcast?.audioUrl, localPosition, playbackRate, volume, muted, next, pause, clearCurrent, setLocalDuration, toast]); // Dependencies for initial setup
 
   // Effect 2: Sync global isPlaying state to audio element
   useEffect(() => {
@@ -184,6 +235,90 @@ export const usePodcastPlayer = ({
       audioRef.current.playbackRate = playbackRate;
     }
   }, [playbackRate]);
+
+  // --- Progress Tracking and Persistence (1-second interval) ---
+  useEffect(() => {
+    if (!currentPodcast || !audioRef.current) {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+      return;
+    }
+
+    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+
+    progressIntervalRef.current = window.setInterval(async () => {
+      const audio = audioRef.current;
+      if (!audio || audio.paused) return;
+
+      const currentPos = Math.floor(audio.currentTime);
+      const currentDur = Math.floor(audio.duration);
+      
+      setLocalPosition(currentPos);
+      usePlayerStore.getState().setPosition(currentPos); // Update global position
+      setLocalDuration(currentDur);
+
+      await dailyTimeTracker.addTime(1); // Increment daily watch time
+      try {
+        if (podcastSession) {
+          await PodcastDatabaseService.updateListenSession(podcastSession.id, { seconds_listened: currentPos });
+          await PodcastDatabaseService.updateEpisodeProgress(currentPodcast.id, currentPos);
+        }
+      } catch (e) {
+        console.error('Error updating podcast progress:', e);
+      }
+
+      // Mark as completed when near the end (90% watched or 1 minute remaining)
+      const completionThreshold = Math.min(currentDur * 0.9, currentDur - 60);
+      if (currentDur >= 120 && currentPos >= completionThreshold) {
+        try {
+          await PodcastDatabaseService.markEpisodeAsCompleted(currentPodcast.id);
+        } catch (e) {
+          console.error('Failed to mark podcast episode as completed:', e);
+        }
+      }
+    }, 1000) as unknown as number; // Update every 1 second
+
+    return () => {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    };
+  }, [currentPodcast?.id, isPlaying, podcastSession, setLocalPosition, setLocalDuration]);
+
+  // --- Persist Progress on Unload/Visibility Change ---
+  useEffect(() => {
+    const persistProgress = async () => {
+      if (!currentPodcast || !audioRef.current) return;
+      const currentPos = Math.floor(audioRef.current.currentTime);
+
+      if (currentPos > 0) {
+        try {
+          if (podcastSession) {
+            await PodcastDatabaseService.endListenSession(podcastSession.id, currentPos);
+          }
+          await PodcastDatabaseService.updateEpisodeProgress(currentPodcast.id, currentPos);
+        } catch (e) {
+          console.error('Error persisting podcast progress on unload:', e);
+        }
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        void persistProgress();
+      }
+    };
+    const onBeforeUnload = () => {
+      void persistProgress();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('beforeunload', onBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [currentPodcast?.id, podcastSession, audioRef]);
 
   return { audioRef, podcastSession };
 };

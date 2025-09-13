@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Card } from '@/components/ui/card';
 import { Play, Pause, SkipForward, X, Volume2, VolumeX, HeadphonesIcon, Youtube, Maximize2, ListMusic } from 'lucide-react';
-import { usePlayerStore } from '@/store/appStore'; // Updated import
+import { usePlayerStore } from '@/store/playerStore'; // Corrected import
 import { PodcastDatabaseService } from '@/lib/podcastDatabase';
 import { DatabaseService } from '@/lib/database';
 import { dailyTimeTracker } from '@/lib/dailyTimeTracker';
@@ -20,7 +20,6 @@ interface MiniPlayerProps {
 
 export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const progressTimer = useRef<number | null>(null);
   const [localDuration, setLocalDuration] = useState(0);
   const [localPosition, setLocalPosition] = useState(0);
   const { toast } = useToast();
@@ -50,7 +49,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
 
   // Use custom hooks for media-specific logic
   const { podcastSession } = usePodcastPlayer({
-    currentPodcast: isPodcast ? { id: current.id, audio_url: (current as any).audio_url, durationSeconds: current.durationSeconds } : null,
+    currentPodcast: isPodcast ? { id: current.id, audioUrl: current.audioUrl!, durationSeconds: current.durationSeconds } : null,
+    audioRef, // Pass audioRef to the hook
     isPlaying,
     volume,
     muted,
@@ -65,7 +65,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
   });
 
   const { ytPlayerInstance, videoSessionIdRef } = useYouTubePlayer({
-    currentVideo: isVideo ? { id: current.id, youtubeId: current.youtubeId!, durationSeconds: current.durationSeconds } : null, // Use current.youtubeId
+    currentVideo: isVideo ? { id: current.id, youtubeId: current.youtubeId!, durationSeconds: current.durationSeconds } : null,
     youtubeIframeRef,
     isPlaying,
     volume,
@@ -79,50 +79,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
     next,
     clearCurrent,
   });
-
-  // --- Media Session API ---
-  useEffect(() => {
-    if (!current || !('mediaSession' in navigator)) return;
-
-    const mediaTitle = current.title;
-    const mediaArtist = isPodcast ? current.creator : current.channelTitle;
-    const mediaAlbum = isPodcast ? current.channelTitle : 'YouTube Video'; // Adjust as needed
-    const mediaArtwork = [{ src: current.thumbnailUrl, sizes: '96x96', type: 'image/jpeg' }];
-
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: mediaTitle,
-      artist: mediaArtist,
-      album: mediaAlbum,
-      artwork: mediaArtwork,
-    });
-
-    navigator.mediaSession.setActionHandler('play', () => resume());
-    navigator.mediaSession.setActionHandler('pause', () => pause());
-    navigator.mediaSession.setActionHandler('nexttrack', () => next());
-    // navigator.mediaSession.setActionHandler('previoustrack', () => prev()); // If prev is implemented
-    navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-      const seekTime = localPosition - (details.seekOffset || 10);
-      onSeek([Math.max(0, seekTime)]);
-    });
-    navigator.mediaSession.setActionHandler('seekforward', (details) => {
-      const seekTime = localPosition + (details.seekOffset || 10);
-      onSeek([Math.min(localDuration, seekTime)]);
-    });
-    // navigator.mediaSession.setActionHandler('stop', () => clearCurrent()); // Use clearCurrent for stop
-
-    return () => {
-      // Clear handlers when component unmounts or current item changes
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.setActionHandler('play', null);
-        navigator.mediaSession.setActionHandler('pause', null);
-        navigator.mediaSession.setActionHandler('nexttrack', null);
-        // navigator.mediaSession.setActionHandler('previoustrack', null);
-        navigator.mediaSession.setActionHandler('seekbackward', null);
-        navigator.mediaSession.setActionHandler('seekforward', null);
-        // navigator.mediaSession.setActionHandler('stop', null);
-      }
-    };
-  }, [current, localPosition, localDuration, isPlaying, resume, pause, next, clearCurrent]);
 
   // --- Load Metadata and Initial Position ---
   useEffect(() => {
@@ -151,6 +107,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
               creator: ep.podcast?.creator || ep.creator,
               durationSeconds: ep.duration_seconds,
               lastPositionSeconds: ep.last_position_seconds,
+              audioUrl: ep.audio_url, // Ensure audioUrl is updated in current
             }, ep.last_position_seconds || 0);
           }
         } else if (isVideo) {
@@ -192,122 +149,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({ youtubeIframeRef }) => {
     })();
     return () => { canceled = true; };
   }, [current?.id, current?.type]); // Re-run when current item changes
-
-  // --- Progress Tracking and Persistence (1-second interval) ---
-  useEffect(() => {
-    if (!current || (!isPodcast && !isVideo)) {
-      if (progressTimer.current) clearInterval(progressTimer.current);
-      progressTimer.current = null;
-      return;
-    }
-
-    if (progressTimer.current) clearInterval(progressTimer.current);
-
-    progressTimer.current = window.setInterval(async () => {
-      let currentPos = 0;
-      let currentDur = 0;
-      let isMediaPlaying = false;
-
-      if (isPodcast && audioRef.current) {
-        currentPos = Math.floor(audioRef.current.currentTime);
-        currentDur = Math.floor(audioRef.current.duration);
-        isMediaPlaying = !audioRef.current.paused;
-      } else if (isVideo && ytPlayerInstance.current && typeof ytPlayerInstance.current.getCurrentTime === 'function' && typeof ytPlayerInstance.current.getDuration === 'function' && typeof ytPlayerInstance.current.getPlayerState === 'function') {
-        const YT = (window as any).YT;
-        currentPos = Math.floor(ytPlayerInstance.current.getCurrentTime());
-        currentDur = Math.floor(ytPlayerInstance.current.getDuration());
-        isMediaPlaying = ytPlayerInstance.current.getPlayerState() === YT.PlayerState.PLAYING;
-      }
-
-      if (currentPos < 0 || currentDur <= 0) return; // Invalid state
-
-      setLocalPosition(currentPos);
-      setGlobalPos(currentPos);
-      setLocalDuration(currentDur);
-
-      if (isMediaPlaying) {
-        await dailyTimeTracker.addTime(1); // Increment daily watch time
-        try {
-          if (isPodcast && podcastSession) {
-            await PodcastDatabaseService.updateListenSession(podcastSession.id, { seconds_listened: currentPos });
-            await PodcastDatabaseService.updateEpisodeProgress(current.id, currentPos);
-          } else if (isVideo && videoSessionIdRef.current) {
-            await DatabaseService.updateWatchSession(videoSessionIdRef.current, { secondsWatched: currentPos });
-            await DatabaseService.updateVideoProgress(current.id, currentPos);
-          }
-        } catch (e) {
-          console.error('Error updating media progress:', e);
-        }
-
-        // Mark as completed when near the end (90% watched or 1 minute remaining)
-        const completionThreshold = Math.min(currentDur * 0.9, currentDur - 60);
-        if (currentDur >= 120 && currentPos >= completionThreshold) {
-          try {
-            if (isPodcast) {
-              await PodcastDatabaseService.markEpisodeAsCompleted(current.id);
-            } else if (isVideo) {
-              await DatabaseService.markVideoAsCompleted(current.id);
-            }
-          } catch (e) {
-            console.error('Failed to mark media as completed:', e);
-          }
-        }
-      }
-    }, 1000) as unknown as number; // Update every 1 second
-
-    return () => {
-      if (progressTimer.current) clearInterval(progressTimer.current);
-      progressTimer.current = null;
-    };
-  }, [current?.id, isPodcast, isVideo, isPlaying, podcastSession, videoSessionIdRef.current, setLocalPosition, setGlobalPos, setLocalDuration]);
-
-  // --- Persist Progress on Unload/Visibility Change ---
-  useEffect(() => {
-    const persistProgress = async () => {
-      if (!current) return;
-      let currentPos = 0;
-      if (isPodcast && audioRef.current) {
-        currentPos = Math.floor(audioRef.current.currentTime);
-      } else if (isVideo && ytPlayerInstance.current && typeof ytPlayerInstance.current.getCurrentTime === 'function') {
-        currentPos = Math.floor(ytPlayerInstance.current.getCurrentTime());
-      }
-
-      if (currentPos > 0) {
-        try {
-          if (isPodcast) {
-            if (podcastSession) {
-              await PodcastDatabaseService.endListenSession(podcastSession.id, currentPos);
-            }
-            await PodcastDatabaseService.updateEpisodeProgress(current.id, currentPos);
-          } else if (isVideo) {
-            if (videoSessionIdRef.current) {
-              await DatabaseService.endWatchSession(videoSessionIdRef.current, currentPos);
-            }
-            await DatabaseService.updateVideoProgress(current.id, currentPos);
-          }
-        } catch (e) {
-          console.error('Error persisting media progress on unload:', e);
-        }
-      }
-    };
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        void persistProgress();
-      }
-    };
-    const onBeforeUnload = () => {
-      void persistProgress();
-    };
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('beforeunload', onBeforeUnload);
-
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('beforeunload', onBeforeUnload);
-    };
-  }, [current?.id, isPodcast, isVideo, podcastSession, videoSessionIdRef.current]);
 
   const onSeek = useCallback((vals: number[]) => {
     const newPos = vals[0];
